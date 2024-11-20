@@ -1,16 +1,24 @@
 {
     "schema_version": "https://raw.githubusercontent.com/hubverse-org/schemas/main/v3.0.1/admin-schema.json",
-    "name": "Template Forecast Hub",
-    "maintainer": "Consortium of Infectious Disease Modeling Hubs",
+    "name": "SARS-CoV-2 Variant Nowcast Hub",
+    "maintainer": "Reich Lab @ UMass-Amherst",
     "contact": {
-        "name": "Joe Bloggs",
-        "email": "j.bloggs@cidmh.com"
+        "name": "Nick Reich",
+        "email": "nick@umass.edu"
     },
     "repository": {
         "host": "github",
-        "owner": "hubverse-org",
-        "name": "hubTemplate"
+        "owner": "reichlab",
+        "name": "variant-nowcast-hub"
     },
-    "file_format": ["csv", "parquet"],
-    "timezone": "US/Eastern"
+    "file_format": ["parquet"],
+    "timezone": "US/Eastern",
+    "cloud": {
+        "enabled": true,
+        "host": {
+            "name": "aws",
+            "storage_service": "s3",
+            "storage_location": "covid-variant-nowcast-hub"
+        }
+    }
 }
