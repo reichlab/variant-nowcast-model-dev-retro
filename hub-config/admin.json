@@ -14,7 +14,7 @@
     "file_format": ["parquet"],
     "timezone": "US/Eastern",
     "cloud": {
-        "enabled": FALSE,
+        "enabled": false,
         "host": {
             "name": "aws",
             "storage_service": "s3",
