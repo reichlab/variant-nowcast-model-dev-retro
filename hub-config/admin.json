@@ -1,6 +1,6 @@
 {
     "schema_version": "https://raw.githubusercontent.com/hubverse-org/schemas/main/v3.0.1/admin-schema.json",
-    "name": "SARS-CoV-2 Variant Nowcast Hub",
+    "name": "UMass testbed for SARS-CoV-2 Variant Nowcast Hub",
     "maintainer": "Reich Lab @ UMass-Amherst",
     "contact": {
         "name": "Nick Reich",
@@ -9,16 +9,16 @@
     "repository": {
         "host": "github",
         "owner": "reichlab",
-        "name": "variant-nowcast-hub"
+        "name": "variant-nowcast-model-dev-retro"
     },
     "file_format": ["parquet"],
     "timezone": "US/Eastern",
     "cloud": {
-        "enabled": true,
+        "enabled": false,
         "host": {
             "name": "aws",
             "storage_service": "s3",
-            "storage_location": "covid-variant-nowcast-hub"
+            "storage_location": "something-should-go-here"
         }
     }
 }
