@@ -4,12 +4,13 @@
 
 require(tidyverse)
 require(arrow)
-# reading in the data; if you want to use the 100k sample to test instead of the full metadata
-# change the file path and use the commended #full_data_file <- read_tsv(file_path) line,
+# reading in the data; Here we are using the 100k sample to test instead of the full metadata.
+# If you want to use the full data
+# change the file path and use the commended #full_data_file <- read_delim_arrow(file_path, delim = "\t") line,
 # because of the different file types.
-file_path <- "./input-data/full_metadata_2024-11-22.tsv.zst"
-#full_data_file <- read_tsv(file_path)
-full_data_file <- read_delim_arrow(file_path, delim = "\t")
+file_path <- "./input-data/100Ksample.tsv.xz"
+full_data_file <- read_tsv(file_path)
+#full_data_file <- read_delim_arrow(file_path, delim = "\t")
 
 # removing any data before 2022, non-humans, and not in the 52 regions we care about
 full_data_file <- filter(full_data_file, date_submitted >= as.Date("2022-01-01"),
