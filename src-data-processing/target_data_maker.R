@@ -17,16 +17,16 @@ target_days <- seq(from = as.Date("2022-08-01"), to = as.Date("2024-08-05"), by 
 # for each date subsetting by date_submitted, grouping and creating a parquet file.
 # matching the structure of write_dataset
 file_name <- "part-0.parquet"
-for(date in target_days[1]) {
+for(date in target_days) {
   date <- as.Date(date)
   data_as_of_date <- full_data_file[full_data_file$date_submitted <= date, ]
   data_to_save <- data_as_of_date %>%
     group_by(location, clade, date) %>%
     summarize(observation = n(), .groups = "drop")
   #creating the partition folders
-  folder_name <- paste0("./target-data/as_of=", date)
+  folder_name <- paste0("./target-data/time-series/as_of=", date)
   if(!file.exists(folder_name)) {
-    dir.create(folder_name)
+    dir.create(folder_name, recursive = T)
   }
   write_parquet(data_to_save, file.path(folder_name, file_name))
 }
