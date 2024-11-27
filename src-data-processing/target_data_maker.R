@@ -17,7 +17,7 @@ target_days <- seq(from = as.Date("2022-08-01"), to = as.Date("2024-08-05"), by 
 # for each date subsetting by date_submitted, grouping and creating a parquet file.
 # matching the structure of write_dataset
 file_name <- "part-0.parquet"
-for(date in target_days[1]) {
+for(date in target_days) {
   date <- as.Date(date)
   data_as_of_date <- full_data_file[full_data_file$date_submitted <= date, ]
   data_to_save <- data_as_of_date %>%
