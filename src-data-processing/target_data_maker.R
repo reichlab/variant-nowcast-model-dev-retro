@@ -24,9 +24,9 @@ for(date in target_days) {
     group_by(location, clade, date) %>%
     summarize(observation = n(), .groups = "drop")
   #creating the partition folders
-  folder_name <- paste0("./target-data/as_of=", date)
+  folder_name <- paste0("./target-data/time-series/as_of=", date)
   if(!file.exists(folder_name)) {
-    dir.create(folder_name)
+    dir.create(folder_name, recursive = T)
   }
   write_parquet(data_to_save, file.path(folder_name, file_name))
 }
