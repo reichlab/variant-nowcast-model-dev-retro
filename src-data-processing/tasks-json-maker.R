@@ -4,6 +4,9 @@
 ## This script is designed to be run once when the retrospective modeling hub
 ## is being set up and should be run from the hub's src-data-processing/ directory.
 
+## In order for the script to work best, the tasks.json file should be deleted
+## and all files in auxiliary-data/modeled-clades/ should be deleted.
+
 ## The script will loop through all retrospective modeling reference dates and
 ## for each reference date it will create a modeling round in tasks.json.
 ## Clades to be modeled will be as any clade with >1% prevalence across all
