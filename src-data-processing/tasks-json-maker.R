@@ -46,9 +46,12 @@ create_modeled_clades <- function(reference_date){
     dplyr::mutate(total_count = sum(clade_count),
                   clade_prop = clade_count/total_count) |>
     dplyr::filter(clade_prop >= 0.01) |>
+    dplyr::arrange(desc(clade_prop)) |>
     dplyr::pull(clade) |>
-    unique() |>
-    c("other")
+    unique()
+  if(length(modeled_clades) > 9)
+    modeled_clades <- modeled_clades[1:9]
+  modeled_clades <- c(sort(modeled_clades), "other")
 
   ## write out file to auxiliary-data/modeled-clades/reference_date.json
   jsonlite::write_json(list(clades = modeled_clades,
