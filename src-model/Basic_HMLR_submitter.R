@@ -29,11 +29,11 @@ for(date in target_dates){
   trimed_data <- trim_clades(data, clades = clades$clades)
   stan_file <- file.path(path_to_stan, "BasicHMLR.stan")
   # the model for the week
-  fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = date, num_seq = 1, num_days = 150,
+  fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
                              interations = 10000, warmup = 5000 )
   set.seed(1)
   # the submission for the week
-  submission_df <- prediction_sampler(fitted_model, given_date = date)
+  submission_df <- prediction_sampler(fitted_model, given_date = as.Date(date + 2))
   file_name <- paste0(paste(as.Date(date + 2), "UMass", "HMLRBasic", sep = "-"), ".parquet")
   # writing out the submission
   write_parquet(submission_df, file.path(path_for_output, file_name))
