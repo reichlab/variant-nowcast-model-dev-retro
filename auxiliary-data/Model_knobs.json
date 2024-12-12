@@ -1,0 +1,24 @@
+{
+  "knobs": {
+    "sd_structure": {
+      "discription": "Is the standard diviation shared between variants, can take on values T for true or F for false",
+      "values": ["T", "F"]
+    },
+    "time_treatment": {
+      "discription": "Do we treat time as time from start of dataset, or time from variant introduction, can take on value D for dataset or V for variant",
+      "values": ["D", "V"]
+    },
+    "time_modeling":{
+      "discription": "How do we model time, can be L for linear, S for splines, or O for other",
+      "values": ["L", "S", "O"]
+    },
+    "distribution": {
+      "discription": "Are we using Dirichlet-multinomial or multinomial for the distribution of the data, can be D for Dirichlet or M for mulinomial",
+      "values": ["D", "M"]
+    },
+    "spacial_correlation":{
+      "discription": "Does the model contain any spacial_correlation elements, can take on values of N for none, S for some, and M for much",
+      "values": ["N","S","M"]
+    }
+  }
+}
