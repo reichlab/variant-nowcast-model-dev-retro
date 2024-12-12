@@ -1,4 +1,4 @@
-// stan file for creating the basic HMLR model
+// stan file for creating the HMLR_FDLMN model
 
 
 data {
