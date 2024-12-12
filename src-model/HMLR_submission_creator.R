@@ -48,4 +48,3 @@ submission_creator <- function(stan_file_name, model_name){
     write_parquet(submission_df, file.path(path_for_output, file_name))
   }
 }
-test <- fromJSON(file = "./auxiliary-data/Model_knobs.json")
