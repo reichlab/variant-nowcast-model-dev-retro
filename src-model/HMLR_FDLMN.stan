@@ -5,16 +5,16 @@ data {
   int<lower=0> N; // the number of samples
   int<lower=1> L; // number of locations
   int<lower=1> K; // number of clades
-  array[N] int<lower=1, upper=K> y; // the clades
-  array[N] int<lower=1, upper=L> ll; // locations
-  array[N] real x; // the days of the samples
+  int<lower=1, upper=K> y[N]; // the clades
+  int<lower=1, upper=L> ll[N]; // locations
+  real x[N]; // the days of the samples
   row_vector [N]  weights; // number of seq per location
 }
 parameters {
   real<lower=0> bsd; // prior sd for betas
-  array[K-1] real bloc; // prior means for betas
-  array[L] vector[K-1] raw_alpha; // alpha's without the reference variant
-  array[L] vector[K-1] raw_beta; // betas without the reference variant
+  real bloc[K-1]; // prior means for betas
+  vector[K-1] raw_alpha[L]; // alpha's without the reference variant
+  vector[K-1] raw_beta[L]; // betas without the reference variant
 }
 model {
   bsd ~ normal(1, 0.1); // prior for the sd
@@ -27,8 +27,8 @@ model {
 
   {
     // Temporary variables to avoid repeated calculation
-    array[L] vector[K] alpha;
-    array[L] vector[K] beta;
+    vector[K] alpha[L];
+    vector[K] beta[L];
     for (l in 1:L) {
       alpha[l] = append_row(0, raw_alpha[l]);
       beta[l] = append_row(0, raw_beta[l]);
