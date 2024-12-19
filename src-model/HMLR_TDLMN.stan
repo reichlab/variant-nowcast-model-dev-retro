@@ -3,7 +3,7 @@ data {
   int<lower=1> L; // number of locations
   int<lower=1> K; // number of clades
   int<lower=1, upper=K> y[N]; // the clades
-  int<lower=1, upper=L> ll[N]; // locations
+  int<lower=1, upper=L> ll[N]; // the locations
   real x[N]; // the days of the samples
   row_vector[N] weights; // number of seq per location
 }
