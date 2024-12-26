@@ -6,32 +6,32 @@ model_version: "1.0"
 model_contributors: [
   {
     "name": "Isaac MacArthur",
-    "affiliation": "Department of Mathematics and Statistics, University of Massachussetts Amherst",
+    "affiliation": "Department of Mathematics and Statistics, University of Massachusetts Amherst",
     "email": "imacarthur@umass.edu"
   },
   {
     "name": "Maryclare Griffin",
-    "affiliation": "Department of Mathematics and Statistics, University of Massachussetts Amherst",
+    "affiliation": "Department of Mathematics and Statistics, University of Massachusetts Amherst",
     "email": "maryclaregri@umass.edu"
   },
   {
     "name": "Evan L. Ray",
-    "affiliation": "Department of Biostatistics and Epidemiology, University of Massachussetts Amherst",
+    "affiliation": "Department of Biostatistics and Epidemiology, University of Massachusetts Amherst",
     "email": "elray@umass.edu"
   },
   {
     "name": "Nick G. Reich",
-    "affiliation": "Department of Biostatistics and Epidemiology, University of Massachussetts Amherst",
+    "affiliation": "Department of Biostatistics and Epidemiology, University of Massachusetts Amherst",
     "email": "nick@umass.edu"
   },
   {
     "name": "Thomas Robacker",
-    "affiliation": "Department of Mathematics and Statistics, University of Massachussetts Amherst",
+    "affiliation": "Department of Mathematics and Statistics, University of Massachusetts Amherst",
     "email": "trobacker@umass.edu"
   },
   {
     "name": "Benjamin W. Rogers",
-    "affiliation": "Department of Biostatistics and Epidemiology, University of Massachussetts Amherst",
+    "affiliation": "Department of Biostatistics and Epidemiology, University of Massachusetts Amherst",
     "email": "bwrogers@umass.edu"
   },
 ]
