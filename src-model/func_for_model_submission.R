@@ -1,14 +1,15 @@
 #' All the functions required for creating the model submissions
 require(splines)
-
+require(gtools)
 #' creates the data_frame that will be turned into the submission
 #' @param stan the list returned by stan_maker or stan_maker_splines
 #' @param given_date what day was the model fit to, a date object
 #' @param N The number of different trajectories to draw, default is 1000
 #' @param dates which days to model, defaults to 31 days before to 10 after the given date
 #' @param splines Is the model the spline model, default false
+#' @param dirichlet Is the model a Dirichlet-multinomial, default false
 #' @returns Returns a DF containing  all the information required required for the hub submission
-prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), splines = FALSE){
+prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), splines = FALSE, dirichlet = FALSE){
   K <- stan$K # the number of clades
   L <- stan$L # the number of locations modleed
   target_lo <- convert_to_abbreviation(stan$target_lo) # mapping states to there two-letter form
@@ -25,6 +26,9 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
   if(splines){
     random_draws <- array(dim = c(K-1,1 + stan$B,N))
     spline <- bs(1:160, degree =  stan$B)
+  } else if(dirichlet){
+    random_draws <- array(dim = c(K-1,2,N))
+    kappas <- rep(NA, N) # the scale parameters
   } else{
     random_draws <- array(dim = c(K-1,2,N))
   }
@@ -74,6 +78,9 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
     for(l in 1:L){
       for(n in 1:N){
         c <- ceiling(runif(1, min = 0, max = length(draws$raw_alpha[ ,1, 1])/N))
+        if(dirichlet){
+          kappas[n] <- draws$kappa[c + (n-1)*length(draws$kappa)/N]
+        }
         for(q in 1:(K-1)){
           random_draws[q, ,n] <- c(draws$raw_alpha[c + (n-1)*length(draws$raw_alpha[ ,1, 1])/N,l,q], draws$raw_beta[c + (n-1)*length(draws$raw_alpha[ ,1, 1])/N,l,q] ) # getting the random draws
         }
@@ -82,7 +89,11 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
         for(m in 1:N){
           temp[1:(K-1)] <- exp(random_draws[, 1, m] + random_draws[, 2, m]*dates[i])/(sum(exp(random_draws[, 1, m] + random_draws[, 2, m]*dates[i]))+1)
           temp[K] <- 1 - sum(temp[1:(K-1)])
-          values[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- temp
+          if(dirichlet){
+            values[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- rdirichlet(1, kappas[m]*temp)
+          } else{
+            values[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- temp
+          }
           horizon[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- rep(given_date + i - length(dates) + 10, K)
         }
       }
@@ -92,6 +103,8 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
   # getting the mean probabilities
   if(splines){
     means <- mlr_probs_splines(stan = stan, num_days = max(dates))
+  } else if(dirichlet){
+    means <- mlr_probs(stan = stan, num_days = max(dates), dirichlet = T)
   } else{
     means <- mlr_probs(stan = stan, num_days = max(dates))
   }
@@ -122,11 +135,16 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
 #' @param num_days the number of days of probability wanted, counts up from the first day that the model was fit to
 #' @param shifted if T uses then uses time since the variant was introduced instead of days from beginning of dataset
 #' should be set to F at present.
+#' @param dirichlet Is the model a Dirichlet-multinomial, default false
 #' @returns a named list containing mean probablities for each location, indexed by location
 
-mlr_probs <- function(stan, num_days, shifted = F){
+mlr_probs <- function(stan, num_days, shifted = F, dirichlet = F){
   full_probs <- list()
-  means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta")) # the alpha and beta
+  if(dirichlet){
+    means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta", "kappa")) # the alpha and beta and scale parameter
+  } else{
+    means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta")) # the alpha and beta
+  }
   # the number of location
   L <- stan$L
   # the number of clades
@@ -135,7 +153,7 @@ mlr_probs <- function(stan, num_days, shifted = F){
   } else{
     K <- stan$V
   }
-  days <- rep(0, K) # the probablities for each day
+  days <- rep(0, K) # the probabilities for each day
   for(l in 1:L){
     intercepts <- means$raw_alpha[, l, ] # the alphas
     coef <- means$raw_beta[ , l , ] # the beta's
@@ -148,7 +166,11 @@ mlr_probs <- function(stan, num_days, shifted = F){
           days[1:(K-1)] <- exp(intercepts[j, ] + coef[j,]*dates[i])/(sum(exp(intercepts[j, ] + coef[j, ]*dates[i]))+1) # calculating the probablities
           #for all but the reference
           days[K] <- 1 - sum(days[1:(K-1)]) # getting the probability for the reference
-          probs[  , i, j] <- days
+          if(dirichlet){
+            probs[, i, j] <- rdirichlet(1, means$kappa[j]*days) # if Dirichlet, using Dirichlet function for probabilities
+          } else{
+            probs[  , i, j] <- days
+          }
         }
       }
     } else {

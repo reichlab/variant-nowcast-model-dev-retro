@@ -13,10 +13,9 @@ require(rjson)
 #'
 #' @param model_name the name of the model to be used; needs to match the model in the model metadata section.
 #'
+#' @param target_dates the dates we want to model, must be a date object(s) of mondays between 2022-08-01 and 2024-08-05
 #' @returns nothing; creates the submission files
-submission_creator <- function(stan_file_name, model_name){
-  #the mondays before the dates we want to model
-  target_dates <- seq(from = as.Date("2022-08-01"), to = as.Date("2024-08-05"), by = 7)
+submission_creator <- function(stan_file_name, model_name, target_dates){
   # the paths to the files we will need
   path_to_json  <- "./auxiliary-data/modeled-clades"
   path_to_data <- "./target-data/time-series"
@@ -37,14 +36,20 @@ submission_creator <- function(stan_file_name, model_name){
     # only keeping the clades we want to model
     trimed_data <- trim_clades(data, clades = clades$clades)
     stan_file <- file.path(path_to_stan, stan_file_name)
-    # the model for the week
-    fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
-                               interations = 15000, warmup = 7000 )
+    # checking if we are using D-multinomial or mulinomial
+    if(substr(model_name, 9, 9) == "D"){
+      fitted_model <- stan_maker_dirichlet(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
+                                           interations = 15000, warmup = 7000 )
+    } else{
+      fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
+                                 interations = 15000, warmup = 7000 )
+    }
     set.seed(1)
     # the submission for the week
     submission_df <- prediction_sampler(fitted_model, given_date = as.Date(date + 2))
     file_name <- paste0(paste(as.Date(date + 2), "UMass", model_name, sep = "-"), ".parquet")
+    path_name <- paste("UMass", substr(stan_file_name, 1, nchar(stan_file_name) - 5), sep = "-")
     # writing out the submission
-    write_parquet(submission_df, file.path(path_for_output, file_name))
+    write_parquet(submission_df, file.path(path_for_output,path_name, file_name))
   }
 }
