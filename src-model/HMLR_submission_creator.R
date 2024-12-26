@@ -46,7 +46,7 @@ submission_creator <- function(stan_file_name, model_name, target_dates){
     }
     set.seed(1)
     # the submission for the week
-    submission_df <- prediction_sampler(fitted_model, given_date = as.Date(date + 2))
+    submission_df <- prediction_sampler(fitted_model, given_date = as.Date(date + 2), N = 100)
     file_name <- paste0(paste(as.Date(date + 2), "UMass", model_name, sep = "-"), ".parquet")
     path_name <- paste("UMass", substr(stan_file_name, 1, nchar(stan_file_name) - 5), sep = "-")
     # writing out the submission
