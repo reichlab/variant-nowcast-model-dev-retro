@@ -9,7 +9,7 @@ require(gtools)
 #' @param splines Is the model the spline model, default false
 #' @param dirichlet Is the model a Dirichlet-multinomial, default false
 #' @returns Returns a DF containing  all the information required required for the hub submission
-prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), splines = FALSE, dirichlet = FALSE){
+prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), dirichlet = FALSE){
   K <- stan$K # the number of clades
   L <- stan$L # the number of locations modleed
   target_lo <- convert_to_abbreviation(stan$target_lo) # mapping states to there two-letter form
@@ -23,14 +23,14 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
   values <- c(rep(0, N*length(target_lo)*length(dates)*length(stan$clades))) # the samples
   temp <- c(rep(0, length(stan$clades))) # the samples for a given day
   draws <- extract(stan$mlr_fit) # extracting the MCMC samples
-  if(splines){
+  if(!is.null(stan$B)){
     random_draws <- array(dim = c(K-1,1 + stan$B,N))
-    spline <- bs(1:160, degree =  stan$B)
-  } else if(dirichlet){
-    random_draws <- array(dim = c(K-1,2,N))
+    spline <- bs(1:max(dates), df =  stan$B, knots = stan$knots)
+  } else {
+    random_draws <- array(dim = c(K-1,2,N)) # the array to store the parameters
+  }
+  if(dirichlet){
     kappas <- rep(NA, N) # the scale parameters
-  } else{
-    random_draws <- array(dim = c(K-1,2,N))
   }
   # indexing the right location dates
   for(i in 1:length(target_lo)){
@@ -51,10 +51,13 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
     }
   }
   # getting the sample predictions
-  if(splines){
+  if(!is.null(stan$B)){
     for(l in 1:L){
       for(n in 1:N){
         c <- ceiling(runif(1, min = 0, max = length(draws$raw_alpha[ ,1, 1])/N))
+        if(dirichlet){
+          kappas[n] <- draws$kappa[c + (n-1)*length(draws$kappa)/N]
+        }
         for(q in 1:(K-1)){
           random_draws[q, 1,n] <- draws$raw_alpha[c + (n-1)*length(draws$raw_alpha[ ,1, 1])/N,l,q] # getting the random draws
           for(b in 1:stan$B){
@@ -69,7 +72,11 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
           }
           temp[1:(K-1)] <- temp[1:(K-1)]/(sum(temp[1:(K-1)]) + 1)
           temp[K] <- 1 - sum(temp[1:(K-1)])
-          values[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- temp
+          if(dirichlet){
+            values[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- rdirichlet(1, kappas[m]*temp)
+          } else{
+            values[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- temp
+          }
           horizon[ (1 + (m-1)*K + (i-1)*N*(K) + (l-1)*(N)*(K)*(length(dates))):((m)*K + (i-1)*N*K + (l-1)*(N)*(K)*(length(dates)))  ] <- rep(given_date + i - length(dates) + 10, K)
         }
       }
@@ -101,9 +108,7 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), s
   }
   horizon <- as.Date(horizon)
   # getting the mean probabilities
-  if(splines){
-    means <- mlr_probs_splines(stan = stan, num_days = max(dates))
-  } else if(dirichlet){
+  if(dirichlet){
     means <- mlr_probs(stan = stan, num_days = max(dates), dirichlet = T)
   } else{
     means <- mlr_probs(stan = stan, num_days = max(dates))
@@ -155,15 +160,29 @@ mlr_probs <- function(stan, num_days, shifted = F, dirichlet = F){
   }
   days <- rep(0, K) # the probabilities for each day
   for(l in 1:L){
+    # checking if we are using splines
+    if(!is.null(stan$B)){
+      coef <- means$raw_beta[ , l , , ] # the beta's
+      B <- stan$B
+      dates <- bs(c(1:num_days), df = B, knots = stan$knots)
+    } else{
+      coef <- means$raw_beta[ , l , ] # the beta's
+      dates <- c(1:num_days) # the days we will calculate the probabilities for
+    }
     intercepts <- means$raw_alpha[, l, ] # the alphas
-    coef <- means$raw_beta[ , l , ] # the beta's
     probs <- array( dim = c(K, num_days, length(intercepts[1,]))) # the matrix of probabilities for each day for each of the samples
     mean_probs <- matrix( nrow = K, ncol = num_days) # the mean probabilities over all the samples
-    dates <- c(1:num_days) # the days we will calculate the probabilities for
     if(!(shifted)){
       for(j in 1:length(intercepts[1, ])){
-        for( i in dates){ # getting the probabilities
-          days[1:(K-1)] <- exp(intercepts[j, ] + coef[j,]*dates[i])/(sum(exp(intercepts[j, ] + coef[j, ]*dates[i]))+1) # calculating the probablities
+        for( i in 1:num_days){ # getting the probabilities
+          if(!is.null(stan$B)){
+            for(k in 1:K-1){
+              days[k] <- exp(intercepts[j, k] + sum(coef[j,k,]*dates[i, ]))
+            }
+            days[1:K-1] <- days[1:K-1]/(sum(days[1:K-1]) +1)
+          } else{
+            days[1:(K-1)] <- exp(intercepts[j, ] + coef[j,]*dates[i])/(sum(exp(intercepts[j, ] + coef[j, ]*dates[i]))+1) # calculating the probablities
+          }
           #for all but the reference
           days[K] <- 1 - sum(days[1:(K-1)]) # getting the probability for the reference
           if(dirichlet){
@@ -196,56 +215,10 @@ mlr_probs <- function(stan, num_days, shifted = F, dirichlet = F){
     full_probs[[stan$target_lo[l]]] <-mean_probs # saving the probabilities for the location
   }
   for(lo in stan$target_lo){
-    row.names(full_probs[[lo]]) <- stan$clades # indexing the probablities by clade
+    row.names(full_probs[[lo]]) <- stan$clades # indexing the probabilities by clade
   }
   return(full_probs)
 }
-
-#' returns a list of probabilities for all locations used for spline model, called in prediction_sampler
-#'
-#' @param stan the list returned by stan_maker_splines
-#' @param num_days the number of days of probability wanted, counts up from the first day that the model was fit to
-#' #' @returns a named list containing mean probablities for each location, indexed by location
-mlr_probs_splines <- function(stan, num_days){
-  full_probs <- list()
-  means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta")) # the alpha and beta
-  L = stan$L
-  B = stan$B
-  if(!is.null(stan$K)){
-    K = stan$K
-  } else{
-    K = stan$V
-  }
-  for(l in 1:L){
-    intercepts <- means$raw_alpha[, l, ] # the alphas
-    coef <- means$raw_beta[ , l , , ] # the beta's
-    probs <- array( dim = c(K, num_days, length(intercepts[1,]))) # the matrix of probabilities for each day
-    mean_probs <- matrix( nrow = K, ncol = num_days)
-    dates <- bs(c(1:num_days), degree =  B)
-    days <- c(rep(0, K))
-    for(j in 1:length(intercepts[1, ])){
-      for( i in 1:num_days){ # getting the probabilities
-        for(k in 1:K-1){
-          days[k] <- exp(intercepts[j, k] + sum(coef[j,k,]*dates[i, ]))
-        }
-        days[1:K-1] <- days[1:K-1]/(sum(days[1:K-1]) +1)
-        days[K] <- 1 - sum(days[1:(K-1)])
-        probs[  , i, j] <- days
-      }
-    }
-    for(i in 1:num_days){
-      for(j in 1:K){
-        mean_probs[j, i] <- mean(probs[j, i, ])
-      }
-    }
-    full_probs[[stan$target_lo[l]]] <- mean_probs
-  }
-  for(lo in stan$target_lo){
-    row.names(full_probs[[lo]]) <- stan$clades
-  }
-  return(full_probs)
-}
-
 #' Function to convert state names to abbreviations, Chat GPT created function, called in prediction_sampler
 #'
 #' @param states the state names we went to convert to abbreviations
