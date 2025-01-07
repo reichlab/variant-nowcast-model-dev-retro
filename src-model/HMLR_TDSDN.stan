@@ -12,7 +12,7 @@ data {
   int<lower=0> N; // the number of days of samples fit to
   int<lower=1> L; // number of locations
   int<lower=1> K; // number of clades
-  int<lower=3> B; // the degrees of freedom
+  int<lower=3> B; // the degrees of freedom for the spline
   int<lower=0> y[N,L,K]; // the vectors of counts for each day and location
   matrix[B, N] x; // the spline over the days of the samples
 }

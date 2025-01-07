@@ -158,8 +158,16 @@ trim_clades <- function(data,clades ){
 #' @param num_days is the number of days before the target date to use, a numeric integer
 #' @param target_loc allows you to choose what locations to use, a string vector, default is NULL
 #' @param iterations,warmup control the number of iterations and warmup iterations stan uses
+#' @param B the number of degrees of freedom if using a spline, default is 3
 #' @return return a list containing the stan object, the number of locations, the number of clades, and the locations
-stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, interations = 3000, warmup = 1000){
+stan_maker_dirichlet <- function(data,stan_file,
+                                 num_seq = 1,
+                                 target_date = Sys.Date(),
+                                 num_days = 150,
+                                 target_loc = NULL,
+                                 interations = 3000,
+                                 warmup = 1000,
+                                 B = 3){
   # finding which locations to model.
   if( is.null(target_loc)){
     target_lo <- loc_finder(data = data, num_seq = num_seq, target_date = target_date)
@@ -191,11 +199,16 @@ stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.
   clades <- clades[-1]
   clades[K] <- temp
   # creating data for the stan file
+  if(substr(stan_file, nchar(stan_file)-7, nchar(stan_file)-7) == "S"){
+    x <- t(bs(1:num_days, df = B))
+    attributes <- attributes(x)
   mlr_data <- list(
     N = num_days, # the number of days
     L = L, # the number of locations
     K = K, # the number of clades
-    y = data_set # the counts for each day, location, clade trio
+    y = data_set, # the counts for each day, location, clade trio
+    x = x, # the spline over the days
+    B = B # the number of degrees of freedom
   )
   # fitting the model
   mlr_fit <- stan(
@@ -206,5 +219,22 @@ stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.
     iter = interations,
     refresh = 500
   )
-  return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
+  return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades,B = B, knots = attributes$knots))
+  } else{
+    mlr_data <- list(
+      N = num_days, # the number of days
+      L = L, # the number of locations
+      K = K, # the number of clades
+      y = data_set # the counts for each day, location, clade trio
+    )
+    # fitting the model
+    mlr_fit <- stan(
+      file = stan_file,
+      data = mlr_data,
+      chains = 1,
+      warmup = warmup,
+      iter = interations,
+      refresh = 500
+    )
+  }
 }
