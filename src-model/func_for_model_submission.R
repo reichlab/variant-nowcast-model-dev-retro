@@ -108,11 +108,7 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), d
   }
   horizon <- as.Date(horizon)
   # getting the mean probabilities
-  if(dirichlet){
-    means <- mlr_probs(stan = stan, num_days = max(dates), dirichlet = T)
-  } else{
-    means <- mlr_probs(stan = stan, num_days = max(dates))
-  }
+  means <- mlr_probs(stan = stan, num_days = max(dates))
   mean_values <- c(rep(0, L*K*(length(dates))))
   mean_sample_ids <- c(rep(NA,L*K*length(dates) ))
   mean_output_type <- c(rep("mean",L*K*length(dates) ))
@@ -140,16 +136,11 @@ prediction_sampler <- function(stan, given_date, N = 1000, dates = c(119:160), d
 #' @param num_days the number of days of probability wanted, counts up from the first day that the model was fit to
 #' @param shifted if T uses then uses time since the variant was introduced instead of days from beginning of dataset
 #' should be set to F at present.
-#' @param dirichlet Is the model a Dirichlet-multinomial, default false
 #' @returns a named list containing mean probablities for each location, indexed by location
 
-mlr_probs <- function(stan, num_days, shifted = F, dirichlet = F){
+mlr_probs <- function(stan, num_days, shifted = F){
   full_probs <- list()
-  if(dirichlet){
-    means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta", "kappa")) # the alpha and beta and scale parameter
-  } else{
-    means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta")) # the alpha and beta
-  }
+  means <- extract(stan$mlr_fit, pars = c("raw_alpha", "raw_beta")) # the alpha and beta
   # the number of location
   L <- stan$L
   # the number of clades
@@ -185,11 +176,7 @@ mlr_probs <- function(stan, num_days, shifted = F, dirichlet = F){
           }
           #for all but the reference
           days[K] <- 1 - sum(days[1:(K-1)]) # getting the probability for the reference
-          if(dirichlet){
-            probs[, i, j] <- rdirichlet(1, means$kappa[j]*days) # if Dirichlet, using Dirichlet function for probabilities
-          } else{
-            probs[  , i, j] <- days
-          }
+          probs[  , i, j] <- days
         }
       }
     } else {
