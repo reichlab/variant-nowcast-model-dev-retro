@@ -14,7 +14,7 @@ require(splines)
 #' @param target_loc allows you to choose what locations to use, a string vector, default is NULL
 #' @param iterations,warmup control the number of iterations and warmup iterations stan uses
 #' @return return a list containing the stan object, the number of locations, the number of clades, and the locations
-stan_maker <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, interations = 3000, warmup = 1000){
+stan_maker <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, iterations = 3000, warmup = 1000){
   # finding which locations to model.
   if( is.null(target_loc)){
     target_lo <- loc_finder(data = data, num_seq = num_seq, target_date = target_date)
@@ -65,7 +65,7 @@ stan_maker <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), nu
     data = mlr_data,
     chains = 1,
     warmup = warmup,
-    iter = interations,
+    iter = iterations,
     refresh = 500
   )
   return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
@@ -124,7 +124,7 @@ trim_clades <- function(data,clades ){
 #' @param target_loc allows you to choose what locations to use, a string vector, default is NULL
 #' @param iterations,warmup control the number of iterations and warmup iterations stan uses
 #' @return return a list containing the stan object, the number of locations, the number of clades, and the locations
-stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, interations = 3000, warmup = 1000){
+stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, iterations = 3000, warmup = 1000){
   # finding which locations to model.
   if( is.null(target_loc)){
     target_lo <- loc_finder(data = data, num_seq = num_seq, target_date = target_date)
@@ -168,7 +168,7 @@ stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.
     data = mlr_data,
     chains = 1,
     warmup = warmup,
-    iter = interations,
+    iter = iterations,
     refresh = 500
   )
   return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
