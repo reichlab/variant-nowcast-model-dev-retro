@@ -65,7 +65,15 @@ model {
       beta_nc[l, k] ~ normal(0, 1); // standard normal for beta_nc
     }
   }
+<<<<<<< HEAD
   
   // Likelihood using reduce_sum
   target += reduce_sum(partial_sum_lpmf, y, 50, ll, x, weights, raw_alpha, raw_beta, K, B);
 }
+=======
+
+  // Likelihood using reduce_sum
+  target += reduce_sum(partial_sum_lpmf, y, 50, ll, x, weights, raw_alpha, raw_beta, K, B);
+}
+
+>>>>>>> 0e08e8b22f939d6447002db35a6ce6fc7c848bff
