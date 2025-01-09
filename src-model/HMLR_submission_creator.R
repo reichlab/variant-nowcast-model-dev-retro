@@ -42,7 +42,7 @@ submission_creator <- function(stan_file_name, model_name, target_dates){
                                            interations = 15000, warmup = 7000 )
     } else{
       fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
-                                 interations = 15000, warmup = 7000 )
+                                 iterations = 15000, warmup = 7000 )
     }
     set.seed(1)
     # the submission for the week

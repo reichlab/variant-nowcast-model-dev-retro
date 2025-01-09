@@ -21,7 +21,7 @@ stan_maker <- function(data,
                        target_date = Sys.Date(),
                        num_days = 150,
                        target_loc = NULL,
-                       interations = 3000,
+                       iterations = 3000,
                        warmup = 1000,
                        B = 3
                        ){
@@ -79,7 +79,7 @@ stan_maker <- function(data,
       data = mlr_data,
       chains = 1,
       warmup = warmup,
-      iter = interations,
+      iter = iterations,
       refresh = 500
     )
     return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades, B = B, knots = attributes$knots ))
@@ -99,7 +99,7 @@ stan_maker <- function(data,
       data = mlr_data,
       chains = 1,
       warmup = warmup,
-      iter = interations,
+      iter = iterations,
       refresh = 500
     )
     return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
@@ -165,7 +165,7 @@ stan_maker_dirichlet <- function(data,stan_file,
                                  target_date = Sys.Date(),
                                  num_days = 150,
                                  target_loc = NULL,
-                                 interations = 3000,
+                                 iterations = 3000,
                                  warmup = 1000,
                                  B = 3){
   # finding which locations to model.
@@ -216,7 +216,7 @@ stan_maker_dirichlet <- function(data,stan_file,
     data = mlr_data,
     chains = 1,
     warmup = warmup,
-    iter = interations,
+    iter = iterations,
     refresh = 500
   )
   return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades,B = B, knots = attributes$knots))
@@ -233,8 +233,9 @@ stan_maker_dirichlet <- function(data,stan_file,
       data = mlr_data,
       chains = 1,
       warmup = warmup,
-      iter = interations,
+      iter = iterations,
       refresh = 500
     )
+    return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades))
   }
 }

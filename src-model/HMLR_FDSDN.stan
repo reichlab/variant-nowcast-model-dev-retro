@@ -1,82 +1,130 @@
 functions {
-  // function for dirichlet_multinomial_lpmf comes from https://discourse.mc-stan.org/t/transforming-a-multinomial-model-into-a-dirichlet-multinomial/26399/2
+  // Function for Dirichlet Multinomial Log-PMF
   real dirichlet_multinomial_lpmf(int[] y, vector alpha) {
     real sum_alpha = sum(alpha);
     return lgamma(sum_alpha) - lgamma(sum(y) + sum_alpha)
-           // + lgamma(sum(y)+1) - sum(lgamma(to_vector(y)+1) // constant, may omit
            + sum(lgamma(to_vector(y) + alpha)) - sum(lgamma(alpha));
+  }
+
+  vector map_rect_likelihood(vector phi,vector params, real[] data_r, int[] data_i) {
+    int K = data_i[1];  // Number of clades
+    int B = data_i[2];  // Degrees of freedom for spline
+    int N = data_i[3];  // Number of days
+    int y[N, K];
+    {
+      int idx = 1;
+      for (n in 1:N) {
+        for (k in 1:K) {
+          y[n, k] = data_i[3 + idx];
+          idx += 1;
+        }
+      }
+    }
+
+    // Extract shared data
+    matrix[B, N] x = to_matrix(data_r[1:(B * N)], B, N);
+    vector[K-1] aloc = phi[1:K-1];
+    vector[K-1] bloc = phi[K:(2*K-2)];
+    real asd = phi[2*K -1];
+    real bsd = phi[2*K];
+    real kappa = phi[2*K+1];
+
+    // Extract location-specific parameters
+    vector[K-1] alpha_nc = segment(params, 1, K-1);
+    matrix[K-1, B] beta_nc = to_matrix(segment(params, K, (K-1)*B), K-1, B);
+
+    // Compute raw alpha and beta
+    vector[K] alpha = append_row(0, aloc + asd * alpha_nc);
+    matrix[K, B] beta;
+    for (b in 1:B) {
+      beta[:, b] = append_row(0, bloc + bsd * beta_nc[:, b]);
+    }
+
+    // Calculate log-likelihood
+    real acc = 0;
+    for (n in 1:N) {
+      if (sum(y[n, :]) > 0) {
+        vector[K] lambda = kappa * exp(alpha + beta * x[:, n]) / sum(exp(alpha + beta * x[:, n]));
+        acc += dirichlet_multinomial_lpmf(y[n, :] | lambda);
+      }
+    }
+
+    return [acc]'; // Return log-likelihood as a vector
   }
 }
 
 data {
-  int<lower=0> N; // the number of days of samples fit to
-  int<lower=1> L; // number of locations
-  int<lower=1> K; // number of clades
-  int<lower=3> B; // the degrees of freedom for the spline
-  int<lower=0> y[N,L,K]; // the vectors of counts for each day and location
-  matrix[B, N] x; // the spline over the days of the samples
+  int<lower=0> N; // Number of days of samples
+  int<lower=1> L; // Number of locations
+  int<lower=1> K; // Number of clades
+  int<lower=3> B; // Degrees of freedom for the spline
+  int<lower=0> y[N, L, K]; // Count data
+  matrix[B, N] x; // Spline matrix
+}
+
+transformed data{
+ // Prepare shared data indices
+  int shared_data_i[L, 4 + N * K -1];
+  real shared_data_r[L,(B * N)];
+  for (l in 1:L) {
+  shared_data_r[l] = to_array_1d(x);
+  shared_data_i[l,1] = K;
+  shared_data_i[l,2] = B;
+  shared_data_i[l, 3] = N;
+  shared_data_i[l,(4):(4 + (N * K)-1)] = to_array_1d(y[:, l, :]);
+  }
 }
 parameters {
-  real<lower=0> bsd; // prior sd for betas
-  real<lower=0> asd; // prior sd for the alphas
-  real<lower=0> kappa; // the scale for the dirchlet
-  real bloc[K-1]; // prior means for betas
-  real aloc[K-1]; // prior means for the alphas
-  vector[K-1] alpha_noncentered[L]; // non-centered alpha parameters
-  matrix[K-1,B] beta_noncentered[L]; // non-centered beta parameters
+  real<lower=0> bsd; // Prior sd for betas
+  real<lower=0> asd; // Prior sd for the alphas
+  real<lower=0> kappa; // Scale for the Dirichlet
+  real bloc[K-1]; // Prior means for betas
+  real aloc[K-1]; // Prior means for the alphas
+  vector[K-1] alpha_noncentered[L]; // Non-centered alpha parameters
+  matrix[K-1, B] beta_noncentered[L]; // Non-centered beta parameters
 }
-transformed parameters {
-  // Centered alpha and beta parameters
 
-  // Calculated alpha_raw and beta_raw
-  vector[K-1] raw_alpha[L];
-  matrix[K-1, B] raw_beta[L];
-
-  // Apply non-centered transformation and back-calculate raw values
-  for (l in 1:L) {
-    for( k in 1:(K-1)){
-      raw_alpha[l, k] = aloc[k] + asd*alpha_noncentered[l,k];
-      for(b in 1:B){
-       raw_beta[l,k, b] = bloc[k] + bsd*beta_noncentered[l,k, b];
-      }
-    }
-  }
-}
 model {
-  // Priors for hyperparameters
-  bsd ~ normal(1, 400); // prior for beta standard deviation
-  asd ~ normal(1, 400); // prior for alpha standard deviation
-  bloc ~ normal(0, 400); // prior for beta mean
-  aloc ~ normal(0, 400); // prior for alpha mean
-  kappa ~ normal(1, 5); // prior for scale
+  // Priors
+  bsd ~ normal(1, 400);
+  asd ~ normal(1, 400);
+  bloc ~ normal(0, 400);
+  aloc ~ normal(0, 400);
+  kappa ~ normal(1, 5);
 
-  // Standard normal priors for non-centered parameters
   for (l in 1:L) {
     alpha_noncentered[l] ~ normal(0, 1);
-    for (k in 1:(K-1)) {
-      beta_noncentered[l, k] ~ normal(0, 1); // standard normal for beta_nc
-    }
+    to_vector(beta_noncentered[l]) ~ normal(0, 1);
   }
 
-  {
-    // Temporary variables to avoid repeated calculation
-    vector[K] alpha[L];
-    matrix[K,B] beta[L];
-    for (l in 1:L) {
-      alpha[l] = append_row(0, raw_alpha[l]);
+    // Vectorize parameters for map_rect
+  vector[(K-1) + (K-1)*B] param_shards[L];
+  for (l in 1:L) {
+    param_shards[l] = append_row(alpha_noncentered[l], to_vector(beta_noncentered[l]));
+  }
+
+  // Prepare shared data
+    vector[K-1] aloc_vec = to_vector(aloc);
+    vector[K-1] bloc_vec = to_vector(bloc);
+    vector[3] scalar_vec = [asd, bsd, kappa]';
+    vector[2*K + 1] phi = append_row(aloc_vec, append_row(bloc_vec, scalar_vec));
+
+  // Call map_rect with the correct arguments
+  target += sum(map_rect(map_rect_likelihood,phi, param_shards, shared_data_r, shared_data_i));
+
+}
+generated quantities {
+  // Declare raw_alpha and raw_beta
+ vector[K-1] raw_alpha[L];
+  matrix[K-1, B] raw_beta[L];
+  for (l in 1:L) {
+    for (k in 1:(K-1)) {
+      raw_alpha[l, k] = aloc[k] + asd * alpha_noncentered[l, k]; // Reparameterized alpha
       for (b in 1:B) {
-        beta[l, :, b] = append_row(0, raw_beta[l, :, b]);
+        raw_beta[l, k, b] = bloc[k] + bsd * beta_noncentered[l, k, b]; // Reparameterized beta
       }
-    }
-    // running the model for each location
-    for(l in 1:L){
-     for (n in 1:N) {
-      if(sum(y[n,l,:]) == 0){
-         continue;
-       } else{
-        y[n, l, :] ~ dirichlet_multinomial(kappa*exp(alpha[l] + beta[l, :, :]* x[:, n])/sum(exp(alpha[l] + beta[l, :, :]* x[:, n])));
-       }
-    }
     }
   }
 }
+
+

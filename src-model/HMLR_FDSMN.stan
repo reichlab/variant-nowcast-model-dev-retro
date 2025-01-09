@@ -1,3 +1,20 @@
+functions {
+  real partial_sum_lpmf(int[] slice_y, int start, int end, int[] ll, matrix x,
+                        row_vector weights, vector[] raw_alpha, matrix[] raw_beta,
+                        int K, int B) {
+    real acc = 0;
+    for (n in 1:size(slice_y)) {
+      vector[K] alpha = append_row(0, raw_alpha[ll[start + n - 1]]);
+      matrix[K, B] beta;
+      for (b in 1:B) {
+        beta[:, b] = append_row(0, raw_beta[ll[start + n - 1], :, b]);
+      }
+      acc += weights[start + n - 1] * categorical_logit_lpmf(slice_y[n] | alpha + beta * x[:, start + n - 1]);
+    }
+    return acc;
+  }
+}
+
 data {
   int<lower=0> N; // the number of samples
   int<lower=1> L; // number of locations
@@ -14,6 +31,8 @@ parameters {
   real<lower=0> asd; // prior sd for alphas
   array[K-1] real aloc; // prior means for the alpha's
   array[K-1] real bloc; // prior means for betas
+
+  // Non-centered parameterization
   vector[K-1] alpha_nc[L]; // raw alpha's
   matrix[K-1, B] beta_nc[L]; // raw betas
 }
@@ -24,9 +43,9 @@ transformed parameters {
   matrix[K-1, B] raw_beta[L];
   for (l in 1:L) {
     for (k in 1:(K-1)) {
-      raw_alpha[l, k] = aloc[k] + asd .* alpha_nc[l, k]; // Reparameterized alpha
-      for(b in 1:(B)){
-        raw_beta[l, k, b] = bloc[k] + bsd * beta_nc[l, k,b]; // Reparameterized beta
+      raw_alpha[l, k] = aloc[k] + asd * alpha_nc[l, k]; // Reparameterized alpha
+      for (b in 1:B) {
+        raw_beta[l, k, b] = bloc[k] + bsd * beta_nc[l, k, b]; // Reparameterized beta
       }
     }
   }
@@ -47,22 +66,6 @@ model {
     }
   }
 
-  // Likelihood
-  {
-    // Temporary variables to avoid repeated calculation
-    vector[K] alpha[L];
-    matrix[K, B] beta[L];
-    for (l in 1:L) {
-      alpha[l] = append_row(0, raw_alpha[l]);
-      for (b in 1:B) {
-        beta[l, :, b] = append_row(0, raw_beta[l, :, b]);
-      }
-    }
-    // Vectorized likelihood calculation
-    vector[N] log_prob;
-    for (n in 1:N) {
-      log_prob[n] = categorical_logit_lpmf(y[n] | alpha[ll[n]] + beta[ll[n], :, :] * x[:, n]);
-    }
-    target += weights * log_prob;
-  }
+  // Likelihood using reduce_sum
+  target += reduce_sum(partial_sum_lpmf, y, 1, ll, x, weights, raw_alpha, raw_beta, K, B);
 }
