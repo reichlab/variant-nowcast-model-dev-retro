@@ -57,7 +57,7 @@ model {
   bloc ~ normal(0, 400); // priors for the betas
   asd ~ normal(1, 400); // prior for the alpha sd
   aloc ~ normal(0, 400); // prior for the alpha means
-  
+
   // Priors on raw parameters (standard normal)
   for (l in 1:L) {
     alpha_nc[l] ~ normal(0, 1); // standard normal for alpha_nc
@@ -65,15 +65,7 @@ model {
       beta_nc[l, k] ~ normal(0, 1); // standard normal for beta_nc
     }
   }
-<<<<<<< HEAD
-  
-  // Likelihood using reduce_sum
-  target += reduce_sum(partial_sum_lpmf, y, 50, ll, x, weights, raw_alpha, raw_beta, K, B);
-}
-=======
 
   // Likelihood using reduce_sum
   target += reduce_sum(partial_sum_lpmf, y, 50, ll, x, weights, raw_alpha, raw_beta, K, B);
 }
-
->>>>>>> 0e08e8b22f939d6447002db35a6ce6fc7c848bff
