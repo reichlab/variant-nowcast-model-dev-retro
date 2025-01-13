@@ -1,7 +1,7 @@
 {
   "knobs": {
     "sd_structure": {
-      "discription": "Is the standard diviation shared between variants, can take on values T for true or F for false",
+      "discription": "Are there there separate sds for each variant, can take on values T for true or F for false",
       "values": ["T", "F"]
     },
     "time_treatment": {

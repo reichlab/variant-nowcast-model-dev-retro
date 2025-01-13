@@ -4,7 +4,7 @@ require(tidyverse)
 require(vcdExtra)
 require(rstan)
 require(splines)
-#' Create a stan model for a given target date and dataset
+#' Create a multinomial stan model for a given target date and dataset
 #'
 #' @param data is a dataframe containing the columns observations, location and date.
 #' @param stan_file is the path to which stan file to use
@@ -14,7 +14,7 @@ require(splines)
 #' @param target_loc allows you to choose what locations to use, a string vector, default is NULL
 #' @param iterations,warmup control the number of iterations and warmup iterations stan uses
 #' @return return a list containing the stan object, the number of locations, the number of clades, and the locations
-stan_maker <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, interations = 3000, warmup = 1000){
+stan_maker <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, iterations = 3000, warmup = 1000){
   # finding which locations to model.
   if( is.null(target_loc)){
     target_lo <- loc_finder(data = data, num_seq = num_seq, target_date = target_date)
@@ -65,12 +65,12 @@ stan_maker <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), nu
     data = mlr_data,
     chains = 1,
     warmup = warmup,
-    iter = interations,
+    iter = iterations,
     refresh = 500
   )
   return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
 }
-#' helper function to find which locations match modeling creatia
+#' helper function to find which locations match modeling criteria
 #'
 #' @param data the data file containing the locations
 #' @param num_seq the number of sequences required to be modeled
@@ -112,4 +112,64 @@ trim_clades <- function(data,clades ){
     data <- filter(data, clade %in% clades)
   }
   return(data)
+}
+
+#' Create a dirichlet-multinomial stan model for a given target date and dataset
+#'
+#' @param data is a dataframe containing the columns observations, location and date.
+#' @param stan_file is the path to which stan file to use
+#' @param num_seq is the number of seq required in the last 60 days to be modeled, a numeric integer
+#' @param target_date target date is the last day of the data to use, needs to be a date object
+#' @param num_days is the number of days before the target date to use, a numeric integer
+#' @param target_loc allows you to choose what locations to use, a string vector, default is NULL
+#' @param iterations,warmup control the number of iterations and warmup iterations stan uses
+#' @return return a list containing the stan object, the number of locations, the number of clades, and the locations
+stan_maker_dirichlet <- function(data,stan_file, num_seq = 1, target_date = Sys.Date(), num_days = 150, target_loc = NULL, iterations = 3000, warmup = 1000){
+  # finding which locations to model.
+  if( is.null(target_loc)){
+    target_lo <- loc_finder(data = data, num_seq = num_seq, target_date = target_date)
+  } else{
+    target_lo = target_loc
+  }
+  # filtering to only the locations and dates that we want
+  data_case <- filter(data, location %in% target_lo, date >= as.Date(target_date) - num_days, date <= as.Date(target_date))
+  # days from start of dataset
+  data_case$days <- as.numeric(as_date(data_case$date)) - as.numeric(as_date(as.Date(target_date) - num_days))
+  # the number of locations modeled
+  L = length(unique(data_case$location))
+  # the number of clades modeled
+  clades <- unique(data$clade)
+  K = length(clades)
+  # creating the array for input
+  data_set <- array(dim = c(num_days, L, K))
+  # filling in the input array
+  for(l in 1:L){
+    temp_data <- filter(data_case, location == target_lo[l])
+    for(k in 1:K){
+      for(n in 1:num_days){
+        data_set[n,l,k] <- sum(filter(temp_data, clade == clades[k], days == n )$observation)
+      }
+    }
+  }
+  # putting the clades in the right order.
+  temp <- clades[1]
+  clades <- clades[-1]
+  clades[K] <- temp
+  # creating data for the stan file
+  mlr_data <- list(
+    N = num_days, # the number of days
+    L = L, # the number of locations
+    K = K, # the number of clades
+    y = data_set # the counts for each day, location, clade trio
+  )
+  # fitting the model
+  mlr_fit <- stan(
+    file = stan_file,
+    data = mlr_data,
+    chains = 1,
+    warmup = warmup,
+    iter = iterations,
+    refresh = 500
+  )
+  return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
 }
