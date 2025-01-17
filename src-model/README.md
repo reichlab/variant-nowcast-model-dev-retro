@@ -12,7 +12,7 @@ To create a model using this repo and these scripts, follow the following steps:
    ```r
    data <- trim_clades(data = data, clades = clades)
    ```
-6. Fit the model using stan_maker or stan_maker_dirichlet; the following example would fit a TDLMN model to 2022-08-03 (you want to use the Wednesday from above) to all states with at least one sequence in the last 60 days, using the last 150 days of data, for 3000 total iterations and 1000 warmup iterations:
+6. Fit the model using `stan_maker` or `stan_maker_dirichlet`; the following example would fit a TDLMN model to 2022-08-03 (you want to use the Wednesday from above) to all states with at least one sequence in the last 60 days, using the last 150 days of data, for 3000 total iterations and 1000 warmup iterations:
    ```r
    fitted_model <- stan_maker( data = data,
                                stan_file = "./src-model/HMLR_TDLMN.stan",
