@@ -51,7 +51,7 @@ stan_maker <- function(data,
   # days from start of dataset
   data_case$days <- as.numeric(as_date(data_case$date)) - as.numeric(as_date(as.Date(target_date) - num_days))
   # the number of locations modeled
-  L = length(unique(data_case$ll))
+  L = length(target_lo)
   # the number of clades modeled
   K = length(unique(data_case$clade))
   # putting the clades in the right order.
@@ -179,7 +179,7 @@ stan_maker_dirichlet <- function(data,stan_file,
   # days from start of dataset
   data_case$days <- as.numeric(as_date(data_case$date)) - as.numeric(as_date(as.Date(target_date) - num_days))
   # the number of locations modeled
-  L = length(unique(data_case$location))
+  L = length(target_lo)
   # the number of clades modeled
   clades <- unique(data$clade)
   K = length(clades)
