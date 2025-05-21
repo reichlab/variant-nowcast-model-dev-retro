@@ -32,46 +32,40 @@ stan_maker <- function(data,
     target_lo = target_loc
   }
   # filtering to only the locations and dates that we want
-  data_case <- filter(data, location %in% target_lo, date >= as.Date(target_date) - num_days, date <= as.Date(target_date))
-  # need numeric levels for the mlr
-  data_case$mlr <- rep(0, length(data_case$clade))
-  # giving each clade a numeric level
-  j = 1
-  for( k in unique(data$clade)){
-    data_case$mlr <- ifelse(data_case$clade == k,j,data_case$mlr )
-    j = j + 1
-  }
-  # need numeric levels for the locations
-  data_case$ll <- rep(0, length(data_case$clade))
-  j = 1
-  for( k in target_lo){
-    data_case$ll <- ifelse(data_case$location == k,j,data_case$ll )
-    j = j + 1
-  }
-  # days from start of dataset
-  data_case$days <- as.numeric(as_date(data_case$date)) - as.numeric(as_date(as.Date(target_date) - num_days))
-  # the number of locations modeled
-  L = length(target_lo)
-  # the number of clades modeled
-  K = length(unique(data_case$clade))
-  # putting the clades in the right order.
-  clades <- unique(data$clade)
-  temp <- clades[1]
-  clades <- clades[-1]
-  clades[K] <- temp
-  # creating data for the stan files, checking if we are using a spline model
   if(substr(stan_file, nchar(stan_file)-7, nchar(stan_file)-7) == "S"){
-    x <- t(bs(data_case$days, df = B))
+    data_case <- filter(data, location %in% target_lo, date >= as.Date(target_date) - num_days, date <= as.Date(target_date))
+    # days from start of dataset
+    data_case$days <- as.numeric(as_date(data_case$date)) - as.numeric(as_date(as.Date(target_date) - num_days))
+    # the number of locations modeled
+    L = length(target_lo)
+    # the number of clades modeled
+    clades <- unique(data$clade)
+    K = length(clades)
+    # creating the array for input
+    data_set <- array(dim = c(num_days, L, K))
+    # filling in the input array
+    for(l in 1:L){
+      temp_data <- filter(data_case, location == target_lo[l])
+      for(k in 1:K){
+        for(n in 1:num_days){
+          data_set[n,l,k] <- sum(filter(temp_data, clade == clades[k], days == n )$observation)
+        }
+      }
+    }
+    # putting the clades in the right order.
+    temp <- clades[1]
+    clades <- clades[-1]
+    clades[K] <- temp
+    # creating data for the stan files, checking if we are using a spline model
+    x <- t(bs(1:(num_days+10), df = B))
     attributes <- attributes(x)
     mlr_data <- list(
-      weights = data_case$observation,
-      L = L, # number of locations
-      ll = data_case$ll, # where each case was located
-      y = data_case$mlr, # the clade of each case
-      x = x,# the spline over the days the cases happened (first day of dataset treated as 0)
-      N = length(data_case$location), # how many cases we had
-      K = K, # number of different clades
-      B = B # the number of degrees of freedom of the spline
+      N = num_days, # the number of days
+      L = L, # the number of locations
+      K = K, # the number of clades
+      y = data_set, # the counts for each day, location, clade trio
+      x = x[, 1:num_days], # the spline over the days
+      B = B # the number of degrees of freedom
     )
     # fitting the model
     mlr_fit <- stan(
@@ -80,10 +74,38 @@ stan_maker <- function(data,
       chains = 1,
       warmup = warmup,
       iter = iterations,
-      refresh = 500
+      refresh = 500,
+      init_r = 0.04
     )
-    return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades, B = B, knots = attributes$knots ))
+    return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades,B = B, knots = attributes$knots))
   } else{
+    data_case <- filter(data, location %in% target_lo, date >= as.Date(target_date) - num_days, date <= as.Date(target_date))
+    # need numeric levels for the mlr
+    data_case$mlr <- rep(0, length(data_case$clade))
+    # giving each clade a numeric level
+    j = 1
+    for( k in unique(data$clade)){
+      data_case$mlr <- ifelse(data_case$clade == k,j,data_case$mlr )
+      j = j + 1
+    }
+    # need numeric levels for the locations
+    data_case$ll <- rep(0, length(data_case$clade))
+    j = 1
+    for( k in target_lo){
+      data_case$ll <- ifelse(data_case$location == k,j,data_case$ll )
+      j = j + 1
+    }
+    # days from start of dataset
+    data_case$days <- as.numeric(as_date(data_case$date)) - as.numeric(as_date(as.Date(target_date) - num_days))
+    # the number of locations modeled
+    L = length(target_lo)
+    # the number of clades modeled
+    K = length(unique(data_case$clade))
+    # putting the clades in the right order.
+    clades <- unique(data$clade)
+    temp <- clades[1]
+    clades <- clades[-1]
+    clades[K] <- temp
     mlr_data <- list(
       weights = data_case$observation,
       L = L, # number of locations
@@ -100,7 +122,8 @@ stan_maker <- function(data,
       chains = 1,
       warmup = warmup,
       iter = iterations,
-      refresh = 500
+      refresh = 500,
+      init_r = 0.04
     )
     return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades ))
   }
@@ -200,14 +223,14 @@ stan_maker_dirichlet <- function(data,stan_file,
   clades[K] <- temp
   # creating data for the stan file
   if(substr(stan_file, nchar(stan_file)-7, nchar(stan_file)-7) == "S"){
-    x <- t(bs(1:num_days, df = B))
+    x <- t(bs(1:(num_days+10), df = B))
     attributes <- attributes(x)
     mlr_data <- list(
       N = num_days, # the number of days
       L = L, # the number of locations
       K = K, # the number of clades
       y = data_set, # the counts for each day, location, clade trio
-      x = x, # the spline over the days
+      x = x[, 1:num_days], # the spline over the days
       B = B # the number of degrees of freedom
     )
     # fitting the model
@@ -217,7 +240,8 @@ stan_maker_dirichlet <- function(data,stan_file,
       chains = 1,
       warmup = warmup,
       iter = iterations,
-      refresh = 500
+      refresh = 500,
+      init_r = 0.04
     )
     return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades,B = B, knots = attributes$knots))
   } else{
@@ -234,7 +258,8 @@ stan_maker_dirichlet <- function(data,stan_file,
       chains = 1,
       warmup = warmup,
       iter = iterations,
-      refresh = 500
+      refresh = 500,
+      init_r = 0.04
     )
     return(list(mlr_fit = mlr_fit, L = L, K = K, target_lo = target_lo, clades = clades))
   }
