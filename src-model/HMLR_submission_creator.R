@@ -38,11 +38,11 @@ submission_creator <- function(stan_file_name, model_name, target_dates){
     stan_file <- file.path(path_to_stan, stan_file_name)
     # checking if we are using D-multinomial or mulinomial
     if(substr(model_name, 9, 9) == "D"){
-      fitted_model <- stan_maker_dirichlet(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
-                                           iterations = 15000, warmup = 7000 )
+      fitted_model <- stan_maker_dirichlet(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = -1, num_days = 150,
+                                           iterations = 15000, warmup = 7000, target_loc = unique(trimed_data$location) )
     } else{
-      fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = 1, num_days = 150,
-                                 iterations = 15000, warmup = 7000 )
+      fitted_model <- stan_maker(trimed_data, stan_file = stan_file, target_date = as.Date(date + 2), num_seq = -1, num_days = 150,
+                                 iterations = 15000, warmup = 7000, target_loc = unique(trimed_data$location) )
     }
     set.seed(1)
     # the submission for the week
