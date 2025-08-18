@@ -9,7 +9,7 @@ data {
 }
 parameters {
   real<lower=0> bsd; // prior sd for betas
-  vector<lower=0>[K-1] asd; // prior sd for the alphas
+  real<lower=0> asd; // prior sd for the alphas
   real bloc[K-1]; // prior means for betas
   real aloc[K-1]; // prior means for the alphas
   vector[K-1] alpha_noncentered[L]; // non-centered alpha parameters
@@ -25,7 +25,7 @@ transformed parameters {
   // Apply non-centered transformation and back-calculate raw values
   for (l in 1:L) {
     for( k in 1:(K-1)){
-      raw_alpha[l, k] = aloc[k] + asd[k]*alpha_noncentered[l,k];
+      raw_alpha[l, k] = aloc[k] + asd*alpha_noncentered[l,k];
       raw_beta[l,k] = bloc[k] + bsd*beta_noncentered[l,k];
     }
   }
