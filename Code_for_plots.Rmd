@@ -1,0 +1,1216 @@
+---
+title: "Latest plotting code for HMLR paper"
+output: pdf_document
+date: "2026-01-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# making the first figure of weekly data over time
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(arrow)
+library(tidyverse)
+library(patchwork)
+# getting the latest data and flitering over time
+data_file_path <- paste0("./target-data/time-series/as_of=", "2024-11-04","/part-0.parquet")
+  data_file <- read_parquet(data_file_path)
+  data_file <- filter(data_file, date > as.Date("2022-01-01"))
+weekly_df <- data_file %>%
+  mutate(week = floor_date(as.Date(date), "week", week_start = 7)) %>%  
+  group_by(week, location) %>%
+  dplyr::summarise(
+    weekly_sum   = sum(observation, na.rm = TRUE),
+    .groups = "drop"
+  )
+# getting the sum for each week
+weekly_total <- data_file %>%
+  mutate(week = floor_date(as.Date(date), "week", week_start = 7)) %>%  
+  group_by(week) %>%
+  dplyr::summarise(
+    weekly_sum   = sum(observation, na.rm = TRUE),
+    log_weekly_sum = log10(sum(observation, na.rm = TRUE)),
+    .groups = "drop"
+  )
+# creating the median weekly logs per week for each s
+weeks <- sort(unique(weekly_df$week))
+weekly_log_medians <- c(rep(NA,length(unique(weekly_df$week)) ))
+for( i in 1:length(unique(weekly_df$week))){
+  weekly_log_medians[i] <- median(log10(filter(weekly_df, week == unique(weekly_df$week)[i] )$weekly_sum))
+}
+# build a small data frame for the median line
+median_df <- tibble(
+  week = weeks,
+  weekly_log_medians = weekly_log_medians
+)
+y_ticks <- seq(0, 5, by = 1)
+y_labels <- paste0( round(10^(y_ticks)))
+# Plotting
+p2 <- ggplot(weekly_df, aes(x = week, y = log10(weekly_sum), color = location)) +
+  geom_line(alpha = 0.6, show.legend = FALSE) +   # suppress legend here
+  scale_color_manual(values = rep("gray", length(unique(weekly_df$location)))) +
+  theme(legend.position = "none") +               # suppress legend globally
+  geom_line(
+    data = median_df,
+    aes(x = week, y = weekly_log_medians),
+    color = "red",
+    size = 1.1,
+    inherit.aes = FALSE,                          # prevents legend from being created
+    show.legend = FALSE
+  ) +
+  geom_line(
+    data = weekly_total,
+    aes(x = week, y = log_weekly_sum),
+    color = "blue",
+    size = 1.1,
+    inherit.aes = FALSE,                          # prevents legend from being created
+    show.legend = FALSE
+  ) +
+  ggplot2::scale_y_continuous(breaks = y_ticks, labels = y_labels) +
+  theme_minimal() +
+  labs(x = NULL, y = "Weekly Sequences (log scale)") +
+  theme(legend.position = "none", text = element_text(size = 15))
+# First plot: raw weekly sums
+p1 <- ggplot(weekly_df, aes(x = week, y = weekly_sum, color = location)) +
+  geom_line() +
+  labs(x = NULL, y = "Weekly Sequences") +
+  theme_minimal() +
+  theme(legend.position = "none", text = element_text(size = 15)) +
+  ylim(min(weekly_df$weekly_sum), max(weekly_df$weekly_sum))
+
+# combining the plots and saving the plot
+p3 <- p1 / p2 + plot_annotation(title = "Weekly Sequences Across States Over Time", theme = theme(
+      plot.title = element_text(size = 15)
+    ))
+p3
+ggsave("Data_over_time_plots.pdf", p3, width = 10, height = 7, units = "in")
+```
+
+```{r cars}
+# making the second figure for variant modeling paper, showing the data shifts over time
+rm(list = ls())
+library("dplyr")
+library("ggplot2")
+library("arrow")
+source("./src-model/func_for_model_submission.R")
+library(grid) 
+options(dplyr.summarise.inform = FALSE) # Suppress message output for dplyr use
+# the function for creating the plot
+create_plots_for_one_date <- function(states, current_date, clades = NULL, data_days = 150){
+  path_to_json  <- "./auxiliary-data/modeled-clades"
+  path_to_data <- "./target-data/time-series/as_of="
+  path_to_model <- "./model-output"
+  path_for_output <- "./model-scores"
+# Using newest Hub target data format
+df_validation <- read_parquet(paste0(path_to_data,as.Date(current_date + 91),"/part-0.parquet"))
+df_validation$count <- df_validation$observation
+df_validation$location <- convert_to_abbreviation(df_validation$location)
+df_validation$target_date <- df_validation$date
+df_validation <- filter(df_validation, date >= current_date - data_days, date <= current_date + 10, location %in% states)
+# getting data fit too
+df_retro <- read_parquet(paste0(path_to_data,as.Date(current_date),"/part-0.parquet"))
+df_retro$count <- df_retro$observation
+df_retro$location <- convert_to_abbreviation(df_retro$location)
+df_retro$target_date <- df_retro$date
+df_retro <- filter(df_retro, date >= current_date - data_days, location %in% states)
+# Model output file,needed to get the clades if not inputted not plotted
+df_model_FDLDN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_FDLDN","/",as.Date(current_date + 2), "-UMass-HMLR_FDLDN",".parquet"))
+if(is.null(clades)){
+  clades <- unique(df_model_FDLDN$clade)
+}
+
+targets_retro <- df_retro |>
+  filter(!is.na(date), date >= (as.Date(current_date) - data_days)) |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  group_by(location, date, clade) |>
+  dplyr::summarise(count = sum(count), .groups = "drop") |>
+  tidyr::complete(location, date, clade, fill = list(count = 0)) |>
+  group_by(location, date) |>
+  mutate(total = sum(count)) |>
+  ungroup() |>
+  mutate(value = ifelse(total == 0, 0, count / total)) |>
+  mutate(type = "target")
+
+# Create a PDF file to save the plots
+unique_locs <- sort(unique(df_model_FDLDN$location))
+
+# string for printing purposes
+date_obs <- paste0("Available Data ", as.Date(current_date + 2))
+
+  targets_retro_this_location <- targets_retro |> subset((location %in% states))
+
+  targets <- df_validation |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  group_by(location, target_date, clade) |>
+  dplyr::summarise(observation = sum(observation), .groups = "drop") |>
+  tidyr::complete(location, target_date, clade, fill = list(observation = 0)) |>
+  group_by(location, target_date) |>
+  mutate(total = sum(observation)) |>
+  ungroup() |>
+  mutate(value = ifelse(total == 0, 0, observation / total)) |>
+  mutate(type = "target")
+
+  targets$target_date <- as.Date(targets$target_date)
+  
+  targets_this_location <- targets |> subset(location %in% states)
+  targets_retro_this_location$target_date <- targets_retro_this_location$date
+  colnames(targets_this_location)[3] <- "clade"
+  paired_df <- dplyr::left_join(
+  targets_retro_this_location,
+  targets_this_location,
+  by = c("target_date", "clade"),
+  suffix = c("_retro", "_this")
+)
+paired_df <- filter(paired_df, value_this != value_retro)
+print(paired_df)
+# Filter to only nonzero values
+  nowcast_df <- data_frame(date = c(as.Date(current_date + 2), as.Date(current_date + 2)), value = c(0,1))
+  p <- ggplot(mapping = aes()) +
+    ggtitle(paste0("Nowcast Proportions and Validated Proportions  \n", states, " ", as.Date(current_date + 2))) +
+    theme(legend.position = "bottom", legend.justification = "center", legend.title = element_blank()) +
+    theme_bw() +
+    theme(
+  legend.position = "bottom",
+  legend.box = "vertical"
+) +
+    scale_y_continuous(
+  limits = c(0, 1),
+  expand = c(0, 0.005)
+)  +
+guides(
+  color = guide_legend(nrow = 1),
+  size = guide_legend(nrow = 1)
+) +
+    theme(legend.text=element_text(size=rel(1))) +
+    labs(x = NULL, y = "Variant proportion") +
+    geom_segment(
+  data = paired_df,
+  inherit.aes = FALSE,
+  mapping = aes(
+    x = target_date, xend = target_date,
+    y = value_retro, yend = value_this
+  ),
+  color = "black",
+  alpha = 0.5,
+  arrow = arrow(length = unit(0.08, "inches"), type = "closed", ends = "last")  # add arrow
+) +
+    geom_point(data = targets_this_location,
+               inherit.aes = FALSE,
+               mapping = aes(x = target_date, y = value, color = "darkorange", size = total),
+               alpha = 0.6) +
+    geom_point(data = targets_retro_this_location,
+               mapping = aes(x = date, y = value, color = "gray", size = total),
+               inherit.aes = FALSE,
+               alpha = 0.7) +
+   geom_line(data = nowcast_df,
+              inherit.aes = FALSE,
+               mapping = aes(x = date, y = value, color = "red"),
+               alpha = 0.6) +
+
+
+    # Breaks decides the legend order
+    # Default without breaks is in ALPHABETICAL ORDER of labels
+    scale_color_manual(labels = c("Evaluation data", "Training data", "Nowcast date"),
+                       values = c("darkorange", "dodgerblue", "red"),
+                       aesthetics = c("fill", "color")) +
+    scale_size(name = "# of sequences", range = c(1, 4)) +
+    facet_wrap(~clade)
+
+  print(p)
+  ggsave("Figure2_plot.pdf")
+}
+#create_plots_for_one_date(states = c("MN"), current_date =seq(from = as.Date("2024-07-15"), to = as.Date("2024-07-15"), by = 7), clades = c("24A","24E"), data_days = 31 )
+#create_plots_for_one_date(states = c("MI"), current_date =seq(from = as.Date("2022-08-22"), to = as.Date("2022-08-22"), by = 7), clades = c("22A","22B"), data_days = 31 )
+#create_plots_for_one_date(states = c("MI"), current_date =seq(from = as.Date("2022-09-05"), to = as.Date("2022-09-05"), by = 7), clades = c("22A","22B"), data_days = 31 )
+#create_plots_for_one_date(states = c("CA"), current_date =seq(from = as.Date("2023-03-27"), to = as.Date("2023-03-27"), by = 7), clades = c("23A","23D"), data_days = 31 )
+#create_plots_for_one_date(states = c("NC"), current_date =seq(from = as.Date("2022-09-19"), to = as.Date("2022-09-19"), by = 7), clades = c("22A","22B"), data_days = 31 )
+create_plots_for_one_date(states = c("GA"), current_date =seq(from = as.Date("2023-01-09"), to = as.Date("2023-01-09"), by = 7), clades = c("22E","23A"), data_days = 31 )
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+rm(list = ls())
+# making Figure for section Figure 3, section 3., shows the model fits and training data
+library("dplyr")
+library("ggplot2")
+library("arrow")
+source("./src-model/func_for_model_submission.R")
+options(dplyr.summarise.inform = FALSE) # Suppress message output for dplyr use
+create_plots_for_one_date_with_forecast <- function(states, current_date, clades){
+  #needed locations
+  path_to_json  <- "./auxiliary-data/modeled-clades"
+  path_to_data <- "./target-data/time-series/as_of="
+  path_to_model <- "./model-output"
+  path_for_output <- "./model-scores"
+# getting data fit too
+df_retro <- read_parquet(paste0(path_to_data,as.Date(current_date),"/part-0.parquet"))
+df_retro$count <- df_retro$observation
+df_retro$location <- convert_to_abbreviation(df_retro$location)
+df_retro$target_date <- df_retro$date
+df_retro <- filter(df_retro, date >= current_date - 31, location %in% states)
+# Model output file, for the four models we want
+df_model_TDLMN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_TDLMN","/",as.Date(current_date + 2), "-UMass-HMLR_TDLMN",".parquet"))
+df_model_TDSMN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_TDSMN","/",as.Date(current_date + 2), "-UMass-HMLR_TDSMN",".parquet"))
+df_model_TDSDN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_TDSDN","/",as.Date(current_date + 2), "-UMass-HMLR_TDSDN",".parquet"))
+df_model_CDSDN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_CDSDN","/",as.Date(current_date + 2), "-UMass-HMLR_CDSDN",".parquet"))
+
+targets_retro <- df_retro |>
+  filter(!is.na(date), date >= (as.Date(current_date) - 31)) |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  group_by(location, date, clade) |>
+  dplyr::summarise(count = sum(count), .groups = "drop") |>
+  tidyr::complete(location, date, clade, fill = list(count = 0)) |>
+  group_by(location, date) |>
+  mutate(total = sum(count)) |>
+  ungroup() |>
+  mutate(value = ifelse(total == 0, 0, count / total)) |>
+  mutate(type = "target")
+
+# find the locations
+unique_locs <- sort(unique(df_model_TDLMN$location))
+
+# string for printing purposes
+date_obs <- paste0("Training data")
+
+  targets_retro_this_location <- targets_retro |> subset((location %in% states))
+# transforming the model files to get the predictions
+   df_out_this_location <- df_model_TDLMN |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup() |>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value),
+              q05 = quantile(value, probs = 0.05, na.rm = T),
+              q95 = quantile(value, probs = 0.95, na.rm = T)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+  df_out_this_location_2 <- df_model_TDSMN|>
+    mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup() |>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value),
+              q05 = quantile(value, probs = 0.05, na.rm = T),
+              q95 = quantile(value, probs = 0.95, na.rm = T)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+  df_out_this_location_3 <- df_model_TDSDN |>
+    mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup() |>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value),
+              q05 = quantile(value, probs = 0.05, na.rm = T),
+              q95 = quantile(value, probs = 0.95, na.rm = T)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+   df_out_this_location_4 <- df_model_CDSDN |>
+    mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup() |>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value),
+              q05 = quantile(value, probs = 0.05, na.rm = T),
+              q95 = quantile(value, probs = 0.95, na.rm = T)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+   # assigning the model names
+  df_out_this_location <- df_out_this_location %>% mutate(team = "ILM")
+  df_out_this_location_2 <- df_out_this_location_2 %>% mutate(team = "ICM")
+  df_out_this_location_3 <- df_out_this_location_3 %>% mutate(team = "ICD")
+  df_out_this_location_4 <- df_out_this_location_4 %>% mutate(team = "CCD")
+  df_out <- bind_rows(df_out_this_location, df_out_this_location_2, df_out_this_location_3, df_out_this_location_4)
+  df_out <- df_out %>% 
+    mutate(team  = factor(team,  levels = c("ILM", "ICM", "ICD", "CCD")))
+  # submission date for graph
+  nowcast_df <- data_frame(date = c(as.Date(current_date + 2), as.Date(current_date + 2)), value = c(0,1))
+  fixed_labels <- c(date_obs, "Submission date", "ILM", "ICM", "ICD", "CCD")
+  # making the plot
+  p <- ggplot(df_out, aes(x = target_date, y = value, color = team)) +
+    theme(legend.position = "bottom", legend.justification = "center", legend.title = element_blank()) +
+    theme_bw() +
+    theme(legend.text=element_text(size=rel(1))) +
+theme(
+  legend.position = "bottom",
+  legend.box = "vertical"
+) +
+guides(
+  color = guide_legend(nrow = 1),
+  size = guide_legend(nrow = 1)
+) +
+    geom_point(data = targets_retro_this_location,
+               mapping = aes(x = date, y = value, color = date_obs, size = total),
+               inherit.aes = FALSE,
+               alpha = 0.6)  +
+   geom_line() +
+    geom_ribbon(aes(ymin = q05, ymax = q95, fill = team), alpha = 0.3, color = NA) +
+     geom_line(
+  data = nowcast_df,
+  inherit.aes = FALSE,
+  aes(x = date, y = value, color = "Submission date"),
+  alpha = 0.6,
+  linetype = 2
+) +
+labs(x = NULL, y = paste("Variant Proportion", states)) +
+    scale_color_manual(
+          name   = NULL,
+          breaks = fixed_labels,  # <<---- sets the order in the legend
+          values = c(
+            # must include colors for all elements in legend_order
+            setNames(
+              c("dodgerblue","brown", "red", "green",  "purple", "black"),
+              fixed_labels
+            )
+          ),
+          aesthetics = c("fill", "color")
+        ) +
+    scale_size(name = "# of sequences", range = c(1, 4)) +
+    facet_grid(
+  rows = vars(clade),
+  cols = vars(team)
+)
+
+  print(p)
+  ggsave("Figure_4_plot.pdf", p, width = 10, height = 7, units = "in")
+}
+create_plots_for_one_date_with_forecast(states = c("GA"), current_date =seq(from = as.Date("2023-01-09"), to = as.Date("2023-01-09"), by = 7), clades = c("22E","23A"))
+```
+```{r}
+# making the new plot for figure 4
+rm(list = ls())
+# making Figure showing GA predictions with prediction intervals
+library("dplyr")
+library(tidyverse)
+library("ggplot2")
+library("arrow")
+source("./src-model/func_for_model_submission.R")
+options(dplyr.summarise.inform = FALSE) # Suppress message output for dplyr use
+set.seed(89)
+create_plots_for_one_date_with_forecast_and_PI <- function(states, current_date, clades){
+  path_to_json  <- "./auxiliary-data/modeled-clades"
+  path_to_data <- "./target-data/time-series/as_of="
+  path_to_model <- "./model-output"
+  path_for_output <- "./model-scores"
+# Using newest Hub target data format
+df_validation <- read_parquet(paste0(path_to_data,as.Date(current_date + 91),"/part-0.parquet"))
+df_validation$count <- df_validation$observation
+df_validation$location <- convert_to_abbreviation(df_validation$location)
+df_validation$target_date <- df_validation$date
+df_validation <- filter(df_validation, date >= current_date - 31, date <= current_date + 10, location %in% states)
+# getting data fit too
+df_retro <- read_parquet(paste0(path_to_data,as.Date(current_date),"/part-0.parquet"))
+df_retro$count <- df_retro$observation
+df_retro$location <- convert_to_abbreviation(df_retro$location)
+df_retro$target_date <- df_retro$date
+df_retro <- filter(df_retro, date >= current_date - 31, location %in% states)
+# Model output files for the models will use
+df_model_TDLMN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_TDLMN","/",as.Date(current_date + 2), "-UMass-HMLR_TDLMN",".parquet"))
+df_model_TDSMN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_TDSMN","/",as.Date(current_date + 2), "-UMass-HMLR_TDSMN",".parquet"))
+df_model_TDSDN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_TDSDN","/",as.Date(current_date + 2), "-UMass-HMLR_TDSDN",".parquet"))
+df_model_CDSDN <- read_parquet(paste0(path_to_model,"/UMass-HMLR_CDSDN","/",as.Date(current_date + 2), "-UMass-HMLR_CDSDN",".parquet"))
+models <- c("TDLMN", "TDSMN", "TDSDN", "CDSDN")
+
+targets_retro <- df_retro |>
+  filter(!is.na(date), date >= (as.Date(current_date) - 50)) |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  group_by(location, date, clade) |>
+  dplyr::summarise(count = sum(count), .groups = "drop") |>
+  tidyr::complete(location, date, clade, fill = list(count = 0)) |>
+  group_by(location, date) |>
+  mutate(total = sum(count)) |>
+  ungroup() |>
+  mutate(value = ifelse(total == 0, 0, count / total)) |>
+  mutate(type = "target")
+
+unique_locs <- sort(unique(df_model_TDSMN$location))
+
+# string for printing purposes
+date_obs <- "Training data"
+
+  targets_retro_this_location <- targets_retro |> subset((location %in% states))
+
+   targets <- df_validation |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  group_by(location, target_date, clade) |>
+  dplyr::summarise(observation = sum(observation), .groups = "drop") |>
+  tidyr::complete(location, target_date, clade, fill = list(observation = 0)) |>
+  group_by(location, target_date) |>
+  mutate(total = sum(observation)) |>
+  ungroup() |>
+  mutate(value = ifelse(total == 0, 0, observation / total)) |>
+  mutate(type = "target")
+
+  targets$target_date <- as.Date(targets$target_date)
+   df_out_this_location <- df_model_TDLMN |>
+  mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup()
+#making the prediction intervals
+num_clades <- length(unique(df_out_this_location$clade))
+locs <- states
+dates <- unique(df_out_this_location$target_date)
+lower_bounds <- c()
+upper_bounds <- c()
+for(i in 1:length(dates)){
+  for(j in 1:length(locs)){
+    state_df <- filter(df_out_this_location, location == locs[j])
+    total_seq <- sum(unique(filter(targets, location == locs[j], target_date == as.Date(dates[i]))$total))
+    if(total_seq == 0){
+      lower_bounds <- c(lower_bounds, rep(0, num_clades))
+      upper_bounds <- c(upper_bounds, rep(0, num_clades))
+    } else{
+     all_draws <- matrix(nrow = num_clades, ncol = 10000)
+     output_types_ids <- unique(state_df$output_type_id)
+    for(k in 1:100){
+     values <- filter(state_df, target_date == as.Date(dates[i]), output_type_id == output_types_ids[k])$value
+     all_draws[, (1 + (k-1)*100):(k*100)] <- rmultinom(100, total_seq, values)
+    }
+    for(m in 1:num_clades){
+      lower_bounds <- c(lower_bounds, (quantile(all_draws[m, ], probs = c(0.05))/total_seq))
+      upper_bounds <- c(upper_bounds, (quantile(all_draws[m, ], probs = c(0.95))/total_seq))
+    }
+     
+    }
+  }
+}
+   df_out_this_location <- df_out_this_location |>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+   #adding the prediction intervals
+   df_out_this_location <- cbind(df_out_this_location, PI05 = lower_bounds, PI95 = upper_bounds)
+   
+  df_out_this_location_2 <- df_model_TDSMN|>
+    mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup()
+  lower_bounds <- c()
+upper_bounds <- c()
+for(i in 1:length(dates)){
+  for(j in 1:length(locs)){
+    state_df <- filter(df_out_this_location_2, location == locs[j])
+    total_seq <- sum(unique(filter(targets, location == locs[j], target_date == as.Date(dates[i]))$total))
+    if(total_seq == 0){
+      lower_bounds <- c(lower_bounds, rep(0, num_clades))
+      upper_bounds <- c(upper_bounds, rep(0, num_clades))
+    } else{
+     all_draws <- matrix(nrow = num_clades, ncol = 10000)
+     output_types_ids <- unique(state_df$output_type_id)
+    for(k in 1:100){
+     values <- filter(state_df, target_date == as.Date(dates[i]), output_type_id == output_types_ids[k])$value
+     all_draws[, (1 + (k-1)*100):(k*100)] <- rmultinom(100, total_seq, values)
+    }
+    for(m in 1:num_clades){
+      lower_bounds <- c(lower_bounds, (quantile(all_draws[m, ], probs = c(0.05))/total_seq))
+      upper_bounds <- c(upper_bounds, (quantile(all_draws[m, ], probs = c(0.95))/total_seq))
+    }
+     
+    }
+  }
+}
+  df_out_this_location_2 <- df_out_this_location_2 |>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+  
+  df_out_this_location_2 <- cbind(df_out_this_location_2, PI05 = lower_bounds, PI95 = upper_bounds)
+  
+  df_out_this_location_3 <- df_model_TDSDN|>
+    mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup() 
+  lower_bounds <- c()
+upper_bounds <- c()
+for(i in 1:length(dates)){
+  for(j in 1:length(locs)){
+    state_df <- filter(df_out_this_location_3, location == locs[j])
+    total_seq <- sum(unique(filter(targets, location == locs[j], target_date == as.Date(dates[i]))$total))
+    if(total_seq == 0){
+      lower_bounds <- c(lower_bounds, rep(NA, num_clades))
+      upper_bounds <- c(upper_bounds, rep(NA, num_clades))
+    } else{
+     all_draws <- matrix(nrow = num_clades, ncol = 10000)
+     output_types_ids <- unique(state_df$output_type_id)
+    for(k in 1:100){
+     values <- filter(state_df, target_date == as.Date(dates[i]), output_type_id == output_types_ids[k])$value
+     all_draws[, (1 + (k-1)*100):(k*100)] <- rmultinom(100, total_seq, values)
+    }
+    for(m in 1:num_clades){
+      lower_bounds <- c(lower_bounds, (quantile(all_draws[m, ], probs = c(0.05))/total_seq))
+      upper_bounds <- c(upper_bounds, (quantile(all_draws[m, ], probs = c(0.95))/total_seq))
+    }
+     
+    }
+  }
+}
+  df_out_this_location_3 <- df_out_this_location_3|>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+  df_out_this_location_3 <- cbind(df_out_this_location_3, PI05 = lower_bounds, PI95 = upper_bounds)
+  
+  df_out_this_location_4 <- df_model_CDSDN|>
+    mutate(clade = ifelse(clade %in% clades, clade, "other")) |>
+  subset((location %in% states) & (output_type == "sample")) |>
+  group_by(target_date, location, clade, output_type_id) |>
+     summarize(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+     ungroup() 
+  lower_bounds <- c()
+upper_bounds <- c()
+for(i in 1:length(dates)){
+  for(j in 1:length(locs)){
+    state_df <- filter(df_out_this_location_4, location == locs[j])
+    total_seq <- sum(unique(filter(targets, location == locs[j], target_date == as.Date(dates[i]))$total))
+    if(total_seq == 0){
+      lower_bounds <- c(lower_bounds, rep(NA, num_clades))
+      upper_bounds <- c(upper_bounds, rep(NA, num_clades))
+    } else{
+     all_draws <- matrix(nrow = num_clades, ncol = 10000)
+     output_types_ids <- unique(state_df$output_type_id)
+    for(k in 1:100){
+     values <- filter(state_df, target_date == as.Date(dates[i]), output_type_id == output_types_ids[k])$value
+     all_draws[, (1 + (k-1)*100):(k*100)] <- rmultinom(100, total_seq, values)
+    }
+    for(m in 1:num_clades){
+      lower_bounds <- c(lower_bounds, (quantile(all_draws[m, ], probs = c(0.05))/total_seq))
+      upper_bounds <- c(upper_bounds, (quantile(all_draws[m, ], probs = c(0.95))/total_seq))
+    }
+     
+    }
+  }
+}
+  df_out_this_location_4 <- df_out_this_location_4|>
+      group_by(target_date, location, clade) |>
+     summarize(mean = mean(value)) |>
+    mutate(type = "prediction") |>
+    rename(value = mean)
+  df_out_this_location_4 <- cbind(df_out_this_location_4, PI05 = lower_bounds, PI95 = upper_bounds)
+  values <- c()
+  # getting the energy scores
+  for(j in 1:length(models)){
+   file_name <- paste0("./model-scores","/UMass-HMLR_",models[j],"/",as.Date(current_date + 2),"-UMass-HMLR_",models[j],".csv")
+   suppressMessages(scores_file <- read_csv(file = file_name, show_col_types = F))
+   scores_file <- filter(scores_file, location == states)
+   values[j] <- round(mean(scores_file$es_score, na.rm = T),2)
+  }
+  df_out_this_location <- df_out_this_location %>% mutate(team = paste0("ILM (ES = ", values[1],")"))
+  df_out_this_location_2 <- df_out_this_location_2 %>% mutate(team = paste0("ICM (ES = ", values[2],")"))
+  df_out_this_location_3 <- df_out_this_location_3 %>% mutate(team = paste0("ICD (ES = ", values[3],")"))
+  df_out_this_location_4 <- df_out_this_location_4 %>% mutate(team = paste0("CCD (ES = ", values[4],")"))
+  df_out <- bind_rows(df_out_this_location, df_out_this_location_2,df_out_this_location_3, df_out_this_location_4  )
+  df_out <- df_out %>% 
+    mutate(team  = factor(team,  levels = c(paste0("ILM (ES = ", values[1],")"), paste0("ICM (ES = ", values[2],")"), paste0("ICD (ES = ", values[3],")"), paste0("CCD (ES = ", values[4],")"))))
+  targets_this_location <- targets |> subset(location %in% states)
+  colnames(targets_this_location)[3] <- "clade"
+  nowcast_df <- data_frame(date = c(as.Date(current_date + 2), as.Date(current_date + 2)), value = c(0,1))
+  validated_label <- "Evaluation data"
+  fixed_labels <- c(validated_label, date_obs, "Submission date", paste0("ILM (ES = ", values[1],")"), paste0("ICM (ES = ", values[2],")"), paste0("ICD (ES = ", values[3],")"), paste0("CCD (ES = ", values[4],")"))
+  #making the ggplot
+  p <- ggplot(df_out, aes(x = target_date, y = value)) +
+    theme(legend.position = "bottom", legend.justification = "center", legend.title = element_blank()) +
+    theme_bw() +
+    theme(legend.text=element_text(size=rel(1))) +
+    theme(
+  legend.position = "bottom",
+  legend.box = "vertical"
+) +
+guides(
+  color = guide_legend(nrow = 1),
+  size = guide_legend(nrow = 1)
+)+
+    geom_point(data = targets_this_location,
+               inherit.aes = FALSE,
+               mapping = aes(x = target_date, y = value, color = validated_label, size = total),
+               alpha = 0.6) +
+
+    geom_point(data = targets_retro_this_location,
+               mapping = aes(x = date, y = value, color = date_obs, size = total),
+               inherit.aes = FALSE,
+               alpha = 0.6)  +
+   geom_line() +
+    geom_ribbon(aes(ymin = PI05, ymax = PI95, fill = team), alpha = 0.3, color = NA) +
+    geom_line(
+  data = nowcast_df,
+  inherit.aes = FALSE,
+  aes(x = date, y = value, color = "Submission date"),
+  linetype = 2,
+  alpha = 0.6
+) +
+labs(x = NULL, y = paste("Variant Proportion", states)) +
+    scale_color_manual(
+          name   = NULL,
+          breaks = fixed_labels,  # <<---- sets the order in the legend
+          values = c(
+            # must include colors for all elements in legend_order
+            setNames(
+              c("darkorange", "dodgerblue", "brown", "red", "green",  "purple", "black"),
+              fixed_labels
+            )
+          ),
+          aesthetics = c("fill", "color")
+        ) +
+    scale_size(name = "# of sequences", range = c(1, 4)) +
+    facet_grid(
+  clade  ~  team
+)
+  print(p)
+  ggsave("Figure_5_plot.pdf", p, width = 10, height = 7, units = "in")
+}
+create_plots_for_one_date_with_forecast_and_PI(states = c("GA"), current_date =seq(from = as.Date("2023-01-09"), to = as.Date("2023-01-09"), by = 7), clades = c("22E","23A"))
+```
+```{r}
+# fixing plot to make it more readable
+# making ggplot versions of the plots in Figure 5
+rm(list = ls())
+library(arrow)
+library(tidyverse)
+
+# creating a plot showing the previlance of clades over time
+newest_data <- read_parquet(paste0("./target-data/time-series/as_of=2024-11-04","/part-0.parquet"))
+newest_data <- filter(newest_data, date >= as.Date("2022-08-01"))
+total_clades <- length(unique(newest_data$clade))
+target_dates <- seq(from = as.Date("2022-08-03"), to = as.Date("2024-08-07"), by = 7)
+total_clade_data <- matrix(nrow = total_clades, ncol = length(target_dates))
+for(i in 1:length(target_dates)){
+  days_seq <- as.Date(seq(as.Date(target_dates[i] - 2),as.Date(target_dates[i] +4), by = 1 ))
+  for(j in 1:total_clades){
+    data_from_week <- filter(newest_data, clade == unique(newest_data$clade)[j], date %in% as.Date(days_seq))
+    total_clade_data[j, i] <- sum(data_from_week$observation)
+  }
+  print(i)
+}
+normalized_clades <- matrix(nrow = total_clades, ncol = length(target_dates))
+for(i in 1:length(target_dates)){
+  normalized_clades[, i] <- total_clade_data[, i]/sum(total_clade_data[, i])
+}
+
+clade_df <- as_tibble(normalized_clades) |>
+  mutate(clade = unique(newest_data$clade)) |>
+  pivot_longer(
+    cols = -clade,
+    names_to = "date_index",
+    values_to = "proportion"
+  ) |>
+  mutate(
+    target_date = target_dates[as.integer(str_remove(date_index, "V"))]
+  )
+colors <- c("chartreuse","red", "blue", "green", "yellow", "purple", "orange", "pink", "brown", "cyan", "magenta", 
+            "gray", "black", "midnightblue", "darkred", "darkblue", "darkgreen", "darkorange", "darkviolet", 
+            "gold", "navy", "maroon", "turquoise", "salmon", "orchid", "plum", "khaki", "coral", 
+            "skyblue", "seagreen", "slategray", "tan", "thistle", "violet", "wheat", "steelblue", 
+            "sienna", "lavender")
+legend_clades <- clade_df %>%
+  group_by(clade) %>%
+  dplyr::summarise(max_prop = max(proportion, na.rm = TRUE)) %>%
+  filter(max_prop >= 0.15) %>%
+  pull(clade)
+p2 <- ggplot(
+  clade_df,
+  aes(x = target_date, y = proportion, color = clade)
+) +
+  geom_line(linewidth = 0.8) +
+  scale_color_manual(
+    values = colors,
+    breaks = legend_clades   
+  ) +
+  labs(
+    title = "Clade proportions over time",
+    x = NULL,
+    y = "Clade proportion"
+  ) +
+  theme_bw() +
+  theme(legend.position = "right")
+p2
+ggsave("clade_prop.pdf", p2, width = 7, height = 3)
+```
+```{r}
+# turning plot into a ribbon showing the range of energy scores and creating a heatmap of scores by target date
+rm(list = ls())
+library(arrow)
+library(tidyverse)
+library(ggtext)
+target_dates <- seq(from = as.Date("2022-08-03"), to = as.Date("2024-08-07"), by = 7)
+models <- c("FDLDN", "FDLMN","TDLDN","TDLMN", "FDSDN","FDSMN","TDSDN", "TDSMN", "CDLDN", "CDLMN", "CDSDN", "CDSMN")
+alt_names <- c("SLD", "SLM","ILD","ILM", "SCD","SCM","ICD", "ICM", "CLD", "CLM", "CCD", "CCM")
+path_for_output <- "./model-scores"
+scores <- matrix(NA, nrow = length(models) + 1, ncol = length(target_dates))
+all_scores <- list()
+total_data <- rep(NA, length(target_dates))
+for(i in 1:length(target_dates)){
+  data_file_path <- paste0("./target-data/time-series/as_of=", as.Date(target_dates[i] - 2),"/part-0.parquet")
+  data_file <- read_parquet(data_file_path)
+  data_file <- filter(data_file, date >= as.Date(target_dates[i] - 150), date <= target_dates[i])
+  total_data[i] <- sum(data_file$observation)
+for(j in 1:(length(models))){
+  file_name <- paste0(path_for_output,"/UMass-HMLR_",models[j],"/",as.Date(target_dates[i]),"-UMass-HMLR_",models[j],".csv")
+   suppressMessages(scores_file <- read_csv(file = file_name, show_col_types = F))
+   scores[j,i] <- mean(scores_file$es_score, na.rm = T)
+   if(i == 1){
+     all_scores[[j]] <- scores_file$es_score
+   } else {
+     all_scores[[j]] <- c(all_scores[[j]], scores_file$es_score)
+   }
+}
+  file_name <- paste0(path_for_output,"/Hub-baseline/", as.Date(target_dates[i]), "-Hub-baseline", ".csv")
+   suppressMessages(scores_file <- read_csv(file = file_name, show_col_types = F))
+   scores[length(models) + 1,i] <- mean(scores_file$es_score, na.rm = T) 
+   if(i == 1){
+     all_scores[[length(models) + 1]] <- scores_file$es_score
+   } else {
+     all_scores[[length(models) + 1]] <- c(all_scores[[length(models) + 1]], scores_file$es_score)
+   }
+}
+score_df <- as_tibble(scores) |>
+  mutate(model = c(alt_names, "baseline")) |>
+  pivot_longer(
+    cols = -model,
+    names_to = "date_index",
+    values_to = "energy_score"
+  ) |>
+  mutate(
+    target_date = target_dates[as.integer(str_remove(date_index, "V"))]
+  )
+score_df <- score_df %>%
+  group_by(target_date) %>%
+   mutate(
+    baseline_es = energy_score[model == "baseline"],
+    rel_es = log((energy_score/baseline_es  )))
+score_df <- score_df %>%
+  mutate(model = factor(model, levels = c("CCD","CCM","ICD", "ICM","SCD","SCM","CLD", "CLM", 
+   "ILD", "ILM", "SLD", "SLM", "baseline")))
+# 1. Summarize data
+score_summary <- score_df %>%
+  group_by(target_date) %>%
+  dplyr::summarise(
+    median_energy = median(rel_es, na.rm = TRUE),
+    min_energy  = min(rel_es, na.rm = TRUE),
+    max_energy  = max(rel_es, na.rm = TRUE),
+    .groups = "drop"
+  )
+score_df <- score_df %>%
+  group_by(target_date) %>%
+  mutate(best_model = rel_es == min(rel_es, na.rm = TRUE)) %>%
+  ungroup()
+p1 <- ggplot(score_summary,
+             aes(x = target_date)) +
+  geom_ribbon(aes(ymin = min_energy,
+                  ymax = max_energy),
+              alpha = 0.3) +
+  geom_line(aes(y = median_energy),
+            linewidth = 1) +
+  labs(
+    title = "Range of log relative mean energy score by submission date",
+    x = NULL,
+    y = "Log relative mean energy score"
+  ) +
+  theme_bw() +
+  theme(legend.position = "right")
+p1
+p2 <- ggplot(score_df,
+             aes(x = target_date, y = model, fill = rel_es)) +
+  geom_tile() +
+  geom_tile(
+    data = filter(score_df, best_model),
+    fill = NA,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  labs(
+    title = "Heatmap of log relative mean energy score by submission date",
+    x = NULL,
+    y = "Model",
+    fill = "Log relative mean energy score"
+  ) +
+  scale_fill_gradientn(
+  colours = c("blue", "white", "red"),
+  values = scales::rescale(c(min(score_df$rel_es), 0, max(score_df$rel_es)))
+) +
+  scale_y_discrete(
+    labels = c(
+      baseline = "Baseline",
+      SLM = "SLM",
+      ILM = "ILM",
+      SLD = "SLD",
+      ILD = "ILD",
+      CLM = "CLM",
+      CLD = "CLD",
+      SCM = expression(bold("SCM")),
+      ICM = expression(bold("ICM")),
+      SCD = expression(bold("SCD")),
+      ICD = expression(bold("ICD")),
+      CCM = expression(bold("CCM")),
+      CCD = expression(bold("CCD"))
+    )
+  ) +
+  theme_bw() + 
+  theme(legend.position = "bottom")
+p2
+ggsave("Heatmap_by_submission_date_with_baseline.pdf", p2)
+ggsave("range_of_scores_by_submission_date.pdf", p1, width = 7, height = 4)
+
+```
+```{r}
+# heatmap of scores by location
+rm(list = ls())
+library(tidyverse)
+library(patchwork)
+library(arrow)
+source("./src-model/func_for_model_creation.R")
+source("./src-model/func_for_model_submission.R")
+library(forcats)
+target_dates <- seq(from = as.Date("2022-08-03"), to = as.Date("2024-08-07"), by = 7)
+models <- c("FDLDN", "FDLMN","TDLDN","TDLMN", "FDSDN","FDSMN","TDSDN", "TDSMN",
+            "CDLDN", "CDLMN", "CDSDN", "CDSMN")
+model_names <- c("SLD", "SLM","ILD","ILM", "SCD","SCM","ICD", "ICM",
+                 "CLD", "CLM", "CCD", "CCM")
+
+# making a map between the two sets of names
+model_map <- tibble(
+  model = models,
+  model_name = model_names
+)
+
+path_for_output <- "./model-scores"
+states <- c(state.abb, "PR", "DC")
+
+# making the list of all files needed
+
+model_files <- expand_grid(
+  model = models,
+  date  = target_dates
+) %>%
+  mutate(
+    date_chr = as.character(date),
+    path = paste0(
+      path_for_output,
+      "/UMass-HMLR_", model, "/",
+      date_chr, "-UMass-HMLR_", model, ".csv"
+    )
+  )
+
+baseline_files <- tibble(
+  model = "baseline",
+  date  = target_dates,
+  date_chr = as.character(date),
+  path = paste0(
+    path_for_output, "/Hub-baseline/",
+    date_chr, "-Hub-baseline.csv"
+  )
+)
+
+all_files <- bind_rows(model_files, baseline_files)
+
+# loading in the files
+
+read_one <- function(path, model, date) {
+  if (!file.exists(path)) return(tibble())
+  df <- readr::read_csv(path, show_col_types = FALSE)
+  df %>%
+    select(location, es_score) %>%
+    mutate(model = model, date = as.Date(date))
+}
+
+all_scores_long <- pmap_dfr(
+  list(all_files$path, all_files$model, all_files$date),
+  read_one
+)
+
+# getting the summaries for each state model pair
+
+summary_by_state_model <- all_scores_long %>%
+  filter(location %in% states) %>%
+  group_by(location, model) %>%
+  summarize(
+    es_score = mean(es_score, na.rm = TRUE),
+    n_files = n(),
+    .groups = "drop"
+  )
+
+summary_by_state_model <- summary_by_state_model %>%
+  left_join(model_map, by = "model") %>%
+  mutate(model_name = if_else(model == "baseline", "baseline", model_name))
+
+
+state_grid <- expand_grid(
+  states = states,
+  model_name = c(model_names, "baseline")
+)
+
+state_scores <- state_grid %>%
+  left_join(
+    summary_by_state_model,
+    by = c("states" = "location", "model_name")
+  ) %>%
+  transmute(
+    states,
+    es_score,
+    model_name
+  )
+
+#plotting the scores
+
+state_scores <- state_scores %>%
+  mutate(
+    states = factor(states, levels = unique(states)),
+    model_name = factor(model_name)
+  )
+state_scores_rel <- state_scores %>%
+  group_by(states) %>%
+  mutate(
+    baseline_es = es_score[model_name == "baseline"],
+    linear = if_else(substr(model_name, 2, 2) == "L",
+                        "Linear", if_else(substr(model_name, 2, 2) == "C", "Cubic", "Baseline")),
+    multinomial = if_else(substr(model_name, 3, 3) == "M",
+                        "Multinomial", if_else(substr(model_name, 3, 3) == "D", "Dirichlet-Multinomial", "Baseline")),
+    corr = ifelse(substr(model_name, 1, 1) == "S", "Shared", ifelse(substr(model_name, 1, 1) == "I", "Individual", ifelse(substr(model_name, 1, 1) == "C", "Correlated", "Baseline"))),
+    rel_es = log((es_score)/baseline_es)
+  ) %>%
+  ungroup()
+state_scores_rel <- state_scores_rel %>%
+  mutate(model_name = factor(model_name, levels = c("CCD","CCM","ICD","ICM", "SCD","SCM","CLD", "CLM", 
+   "ILD", "ILM","SLD",  "SLM", "baseline")))
+# ordering the states by amount of data
+all_data <- read_parquet("./target-data/time-series/as_of=2024-11-04/part-0.parquet")
+data_ranks <- all_data %>% 
+group_by(location) %>%
+  summarize(
+    data_amount = sum(observation, na.rm = TRUE),
+  )
+data_ranks <- arrange(data_ranks, desc(data_amount) )
+data_ranks$location <- convert_to_abbreviation(data_ranks$location)
+
+state_order <- data_ranks %>%
+  arrange(desc(data_amount)) %>%     
+  pull(location)
+state_scores_rel <- state_scores_rel %>%
+  mutate(
+    states = factor(states, levels = state_order)
+  )
+state_scores_rel <- arrange(state_scores_rel, states)
+state_scores_rel <- state_scores_rel %>%
+  group_by(states) %>%
+  mutate(best_model = rel_es == min(rel_es, na.rm = TRUE)) %>%
+  ungroup()
+p1 <- ggplot(state_scores_rel, aes(x = states, y = model_name, fill = rel_es )) +
+   geom_tile() +
+  geom_tile(
+    data = filter(state_scores_rel, best_model),
+    fill = NA,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  labs(
+    title = "Heatmap of log relative mean energy score by location",
+    x = NULL,
+    y = "Models",
+    fill = "Log relative mean energy score"
+  ) +
+  scale_fill_gradientn(
+  colours = c("blue", "white", "red"),
+  values = scales::rescale(c(min(state_scores_rel$rel_es), 0, max(state_scores_rel$rel_es)))
+) +
+  scale_y_discrete(
+    labels = c(
+      Baseline ="Baseline",
+      SLM = "SLM",
+      SLD = "SLD",
+      ILM = "ILM",
+      ILD = "ILD",
+      CLM = "CLM",
+      CLD = "CLD",
+      SCM = expression(bold("SCM")),
+      SCD = expression(bold("SCD")),
+      ICM = expression(bold("ICM")),
+      ICD = expression(bold("ICD")),
+      CCM = expression(bold("CCM")),
+      CCD = expression(bold("CCD"))
+    )
+  ) + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+  )+ 
+  theme(legend.position = "bottom")
+p1
+ggsave("Scores_by_location_with_baseline.pdf", p1)
+```
+
+```{r}
+# auxilary plots
+# doing the same thing as above but with brier scores
+rm(list = ls())
+library(arrow)
+library(tidyverse)
+library(ggtext)
+target_dates <- seq(from = as.Date("2022-08-03"), to = as.Date("2024-08-07"), by = 7)
+#models <- c("FDLDN", "FDLMN","TDLDN","TDLMN", "FDSDN","FDSMN","TDSDN","TDSMN", "TDSDS")
+models <- c("FDLDN", "FDLMN","TDLDN","TDLMN", "FDSDN","FDSMN","TDSDN", "TDSMN", "CDLDN", "CDLMN", "CDSDN", "CDSMN")
+alt_names <- c("SLD", "SLM","ILD","ILM", "SCD","SCM","ICD", "ICM", "CLD", "CLM", "CCD", "CCM")
+path_for_output <- "./model-scores"
+scores <- matrix(NA, nrow = length(models) + 1, ncol = length(target_dates))
+all_scores <- list()
+total_data <- rep(NA, length(target_dates))
+for(i in 1:length(target_dates)){
+  data_file_path <- paste0("./target-data/time-series/as_of=", as.Date(target_dates[i] - 2),"/part-0.parquet")
+  data_file <- read_parquet(data_file_path)
+  data_file <- filter(data_file, date >= as.Date(target_dates[i] - 150), date <= target_dates[i])
+  total_data[i] <- sum(data_file$observation)
+for(j in 1:(length(models))){
+  file_name <- paste0(path_for_output,"/UMass-HMLR_",models[j],"/",as.Date(target_dates[i]),"-UMass-HMLR_",models[j],".csv")
+   suppressMessages(scores_file <- read_csv(file = file_name, show_col_types = F))
+   scores[j,i] <- mean(scores_file$brier_score, na.rm = T)
+   if(i == 1){
+     all_scores[[j]] <- scores_file$brier_score
+   } else {
+     all_scores[[j]] <- c(all_scores[[j]], scores_file$brier_score)
+   }
+}
+  file_name <- paste0(path_for_output,"/Hub-baseline/", as.Date(target_dates[i]), "-Hub-baseline", ".csv")
+   suppressMessages(scores_file <- read_csv(file = file_name, show_col_types = F))
+   scores[length(models) + 1,i] <- mean(scores_file$brier_score, na.rm = T) 
+   if(i == 1){
+     all_scores[[length(models) + 1]] <- scores_file$brier_score
+   } else {
+     all_scores[[length(models) + 1]] <- c(all_scores[[length(models) + 1]], scores_file$brier_score)
+   }
+}
+
+score_df <- as_tibble(scores) |>
+  mutate(model = c(alt_names, "baseline")) |>
+  pivot_longer(
+    cols = -model,
+    names_to = "date_index",
+    values_to = "bs_score"
+  ) |>
+  mutate(
+    target_date = target_dates[as.integer(str_remove(date_index, "V"))]
+  )
+score_df <- score_df %>%
+  group_by(target_date) %>%
+   mutate(
+    baseline_bs = bs_score[model == "baseline"],
+    rel_bs = (bs_score- baseline_bs  )/baseline_bs)
+score_df <- filter(score_df, model != "baseline")
+score_df <- score_df %>%
+  mutate(model = factor(model, levels = c("CCD", "CLD", "CCM", "CLM", 
+  "ICD", "ILD", "ICM", "ILM", "SCD", "SLD", "SCM", "SLM")))
+# 1. Summarize data
+score_summary <- score_df %>%
+  group_by(target_date) %>%
+  dplyr::summarise(
+    mean_brier = mean(rel_bs, na.rm = TRUE),
+    min_brier  = min(rel_bs, na.rm = TRUE),
+    max_brier  = max(rel_bs, na.rm = TRUE),
+    .groups = "drop"
+  )
+p1 <- ggplot(score_summary,
+             aes(x = target_date)) +
+  geom_ribbon(aes(ymin = min_brier,
+                  ymax = max_brier),
+              alpha = 0.3) +
+  geom_line(aes(y = mean_brier),
+            linewidth = 1) +
+  labs(
+    title = "Range of relative mean brier score by target date",
+    x = NULL,
+    y = "Relative mean brier score"
+  ) +
+  theme_bw() +
+  theme(legend.position = "right")
+p1
+```
+```{r}
+# making a plot showing off the differences between the ICD and ICM models for GA in Jan 23
+rm(list = ls())
+library(rstan)
+
+
+state <- 10
+load("/work/pi_maryclaregri_umass_edu/variant-nowcast-model-dev-retro/HMLR_TDSDN.stan2023-01-09.RData")
+samplesd <- extract(fitted_model$mlr_fit)
+load("/work/pi_maryclaregri_umass_edu/variant-nowcast-model-dev-retro/HMLR_TDSMN.stan2023-01-09.RData")
+samplesm <- extract(fitted_model$mlr_fit)
+
+cl <- 1
+# cl 1, alpha
+# cl 3, beta2
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)  # for layout like your layout()
+
+# Density data
+df_kappa <- data.frame(kappa = samplesd$kappa)
+
+# Means
+mean_m <- apply(samplesm$raw_beta[, 10, , 3], 2, mean)
+mean_d <- apply(samplesd$raw_beta[, 10, , 3], 2, mean)
+
+df_mean <- data.frame(
+  ICM = mean_m,
+  ICD = mean_d
+)
+
+# SDs
+sd_m <- apply(samplesm$raw_beta[, 10, , 3], 2, sd)
+sd_d <- apply(samplesd$raw_beta[, 10, , 3], 2, sd)
+
+df_sd <- data.frame(
+  ICM = sd_m,
+  ICD = sd_d,
+  color_flag = ifelse(sd_d < sd_m, "blue", "red")
+)
+p1 <- ggplot(df_kappa, aes(x = kappa)) +
+  geom_density() +
+  labs(x = "Sample Overdispersion Parameter Value", y = "Density") +
+  theme_bw()
+p2 <- ggplot(df_mean, aes(x = ICM, y = ICD)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(x = expression("ICM " * gamma[lv4] * "means"),
+  y = expression("ICD " * gamma[lv4] * "means")) +
+  theme_bw()
+p3 <- ggplot(df_sd, aes(x = ICM, y = ICD, color = color_flag)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  scale_color_identity() +  # uses "blue"/"red" directly
+  labs(x = expression("ICM " * gamma[lv4] * " sds"),
+  y = expression("ICD " * gamma[lv4] * " sds")) +
+  theme_bw()
+p4 <- (p1 + ggtitle("Comparison Of ICM and ICD models for GA 2023-01-11")) /
+(p2 |p3)
+p4
+ggsave("ICD_vs_ICM_plots.pdf", plot = p4)
+```
+
